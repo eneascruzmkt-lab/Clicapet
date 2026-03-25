@@ -55,7 +55,7 @@ export async function processPendingReminders() {
 
     try {
       await getResend().emails.send({
-        from: 'VetClinic <onboarding@resend.dev>',
+        from: 'Clicapet <onboarding@resend.dev>',
         to: client.email,
         subject: `Lembrete de vacina: ${vaccine.name} para ${pet.name}`,
         html: `

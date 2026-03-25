@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'VetClinic - Gestão Veterinária',
+  title: 'Clicapet - Gestão Veterinária',
   description: 'Sistema de gestão para clínicas veterinárias',
 }
 

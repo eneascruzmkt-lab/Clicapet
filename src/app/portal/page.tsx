@@ -40,7 +40,7 @@ export default function PortalLoginPage() {
         return
       }
 
-      localStorage.setItem('vetclinic_invite_code', inviteCode.toUpperCase().trim())
+      localStorage.setItem('clicapet_invite_code', inviteCode.toUpperCase().trim())
       router.push('/onboarding/client')
       router.refresh()
     } else {

@@ -5,7 +5,7 @@ export default function Home() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="text-center space-y-8">
         <div>
-          <h1 className="text-4xl font-bold text-gray-900">VetClinic</h1>
+          <h1 className="text-4xl font-bold text-gray-900">Clicapet</h1>
           <p className="mt-2 text-gray-500">Sistema de gestao veterinaria</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-4">

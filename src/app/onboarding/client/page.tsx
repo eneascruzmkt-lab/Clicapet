@@ -13,7 +13,7 @@ export default function ClientOnboardingPage() {
   const router = useRouter()
 
   useEffect(() => {
-    const code = localStorage.getItem('vetclinic_invite_code')
+    const code = localStorage.getItem('clicapet_invite_code')
     if (code) setInviteCode(code)
   }, [])
 
@@ -26,7 +26,7 @@ export default function ClientOnboardingPage() {
       const formData = new FormData(e.currentTarget)
       formData.set('invite_code', inviteCode || (formData.get('invite_code') as string))
       await createClientProfile(formData)
-      localStorage.removeItem('vetclinic_invite_code')
+      localStorage.removeItem('clicapet_invite_code')
       router.push('/portal/dashboard')
       router.refresh()
     } catch (err: any) {

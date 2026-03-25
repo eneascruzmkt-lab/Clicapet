@@ -22,7 +22,7 @@ export function PortalSidebar() {
 
   return (
     <aside className="w-56 bg-white border-r min-h-screen p-4 flex flex-col">
-      <h2 className="text-lg font-bold mb-1">VetClinic</h2>
+      <h2 className="text-lg font-bold mb-1">Clicapet</h2>
       <p className="text-xs text-gray-400 mb-6">Portal do Tutor</p>
       <nav className="flex-1 space-y-1">
         {links.map((link) => (

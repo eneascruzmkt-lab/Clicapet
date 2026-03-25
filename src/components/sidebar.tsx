@@ -22,7 +22,7 @@ export function Sidebar() {
 
   return (
     <aside className="w-56 bg-white border-r min-h-screen p-4 flex flex-col">
-      <h2 className="text-lg font-bold mb-6">VetClinic</h2>
+      <h2 className="text-lg font-bold mb-6">Clicapet</h2>
       <nav className="flex-1 space-y-1">
         {links.map((link) => (
           <Link
