@@ -29,12 +29,14 @@ export async function createClientAction(formData: FormData) {
   } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  await supabase.from('clients').insert({
+  const { error } = await supabase.from('clients').insert({
     user_id: user.id,
     name: formData.get('name') as string,
     phone: formData.get('phone') as string,
     email: formData.get('email') as string,
   })
+
+  if (error) throw new Error('Falha ao cadastrar cliente')
 
   redirect('/dashboard/clients')
 }

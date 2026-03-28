@@ -24,7 +24,7 @@ export default function PortalLoginPage() {
 
     if (isSignUp) {
       const formData = new FormData(e.currentTarget)
-      const inviteCode = (formData.get('invite_code') as string)?.toUpperCase().trim()
+      const inviteCode = ((formData.get('invite_code') as string) || '').toUpperCase().trim()
       const name = formData.get('name') as string
       const phone = (formData.get('phone') as string)?.replace(/\D/g, '') || ''
       const cpf = (formData.get('cpf') as string)?.replace(/\D/g, '') || ''

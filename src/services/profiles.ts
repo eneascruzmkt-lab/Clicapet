@@ -85,11 +85,13 @@ export async function createClientProfile(formData: FormData) {
 
   if (profileError || !profile) throw new Error('Failed to create profile')
 
-  await supabase.from('clients').insert({
+  const { error: clientError } = await supabase.from('clients').insert({
     user_id: clinic.user_id,
     profile_id: profile.id,
     name,
     phone,
     email: user.email,
   })
+
+  if (clientError) throw new Error('Failed to create client record')
 }

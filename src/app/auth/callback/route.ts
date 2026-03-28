@@ -36,8 +36,7 @@ export async function GET(request: Request) {
 
   // Criar perfil baseado nos dados do signup
   if (meta?.role === 'clinic_owner') {
-    // Criar clinica
-    const { data: clinic } = await supabase
+    const { data: clinic, error: clinicError } = await supabase
       .from('clinics')
       .insert({
         user_id: user.id,
@@ -49,7 +48,7 @@ export async function GET(request: Request) {
       .select()
       .single()
 
-    if (clinic) {
+    if (!clinicError && clinic) {
       await supabase.from('profiles').insert({
         user_id: user.id,
         role: 'clinic_owner',
@@ -58,13 +57,14 @@ export async function GET(request: Request) {
         clinic_id: clinic.id,
         onboarding_complete: true,
       })
+      return NextResponse.redirect(`${origin}/dashboard`)
     }
 
-    return NextResponse.redirect(`${origin}/dashboard`)
+    // Clinic creation failed — send to onboarding to retry
+    return NextResponse.redirect(`${origin}/onboarding/clinic`)
   }
 
   if (meta?.role === 'client') {
-    // Buscar clinica pelo invite code
     const { data: clinic } = await supabase
       .from('clinics')
       .select('id, user_id')
@@ -72,7 +72,7 @@ export async function GET(request: Request) {
       .single()
 
     if (clinic) {
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .insert({
           user_id: user.id,
@@ -86,7 +86,7 @@ export async function GET(request: Request) {
         .select()
         .single()
 
-      if (profile) {
+      if (!profileError && profile) {
         await supabase.from('clients').insert({
           user_id: clinic.user_id,
           profile_id: profile.id,

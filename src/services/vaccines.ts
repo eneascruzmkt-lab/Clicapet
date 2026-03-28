@@ -20,12 +20,7 @@ export async function createVaccineAction(formData: FormData) {
     .select()
     .single()
 
-  if (error || !vaccine) {
-    redirect(`/dashboard/pets/${petId}`)
-  }
-
-  // Cria lembrete automaticamente se tem próxima dose
-  if (nextDueDate) {
+  if (!error && vaccine && nextDueDate) {
     await supabase.from('reminders').insert({
       vaccine_id: vaccine.id,
       send_at: nextDueDate,

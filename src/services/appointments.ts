@@ -16,13 +16,15 @@ export async function createAppointmentAction(formData: FormData) {
 
   if (!profile?.clinic_id) redirect('/portal')
 
-  await supabase.from('appointments').insert({
+  const { error } = await supabase.from('appointments').insert({
     pet_id: formData.get('pet_id') as string,
     clinic_id: profile.clinic_id,
     scheduled_at: formData.get('scheduled_at') as string,
     type: formData.get('type') as string,
     notes: (formData.get('notes') as string) || null,
   })
+
+  if (error) throw new Error('Falha ao agendar consulta')
 
   redirect('/portal/dashboard')
 }
