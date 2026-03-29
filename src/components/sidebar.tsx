@@ -7,6 +7,9 @@ import { createClient } from '@/lib/supabase/client'
 const links = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/dashboard/clients', label: 'Clientes' },
+  { href: '/dashboard/calendario', label: 'Calendario' },
+  { href: '/dashboard/financeiro', label: 'Financeiro' },
+  { href: '/dashboard/lembretes', label: 'Lembretes' },
 ]
 
 export function Sidebar() {

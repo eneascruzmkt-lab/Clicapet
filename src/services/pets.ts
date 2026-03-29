@@ -7,7 +7,7 @@ export async function getPet(id: string) {
   const supabase = await createClient()
   const { data } = await supabase
     .from('pets')
-    .select('*, clients(name, id), vaccines(*, reminders(*))')
+    .select('*, clients(name, id), vaccines(*, reminders(*)), medical_records(*)')
     .eq('id', id)
     .single()
   return data

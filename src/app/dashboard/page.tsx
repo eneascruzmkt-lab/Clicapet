@@ -1,13 +1,15 @@
 export const dynamic = 'force-dynamic'
 
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { Header } from '@/components/header'
 import { InviteCodeCard } from '@/components/invite-code-card'
 import { getClinic } from '@/services/clinics'
+import { getMonthlyStats } from '@/services/transactions'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
-  const clinic = await getClinic()
+  const [clinic, stats] = await Promise.all([getClinic(), getMonthlyStats()])
 
   const { count: petsCount } = await supabase
     .from('pets')
@@ -33,6 +35,12 @@ export default async function DashboardPage() {
           <p className="text-sm text-gray-500">Próximas vacinas</p>
           <p className="text-3xl font-bold">{upcomingVaccines?.length ?? 0}</p>
         </div>
+        <Link href="/dashboard/financeiro" className="bg-white p-6 rounded-lg shadow-sm border hover:border-blue-200 transition-colors">
+          <p className="text-sm text-gray-500">Receita do mes</p>
+          <p className="text-3xl font-bold text-green-600">
+            {stats.revenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+          </p>
+        </Link>
         {clinic && <InviteCodeCard code={clinic.invite_code} />}
       </div>
 

@@ -33,7 +33,7 @@ export default function LoginPage() {
         return
       }
 
-      const { error } = await supabase.auth.signUp({
+      const { error, data: signUpData } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -52,6 +52,25 @@ export default function LoginPage() {
         return
       }
 
+      // Se auto-confirmado (sem email), criar perfil e ir direto pro dashboard
+      if (signUpData.session) {
+        try {
+          const fd = new FormData()
+          fd.set('clinic_name', clinicName)
+          fd.set('clinic_phone', clinicPhone)
+          fd.set('clinic_address', clinicAddress)
+          const { createClinicOwnerProfile } = await import('@/services/profiles')
+          await createClinicOwnerProfile(fd)
+          router.push('/dashboard')
+          router.refresh()
+          return
+        } catch {
+          // Falha — vai pro onboarding
+          router.push('/onboarding/clinic')
+          return
+        }
+      }
+
       setEmailSent(true)
       setLoading(false)
     } else {
@@ -68,8 +87,28 @@ export default function LoginPage() {
         .eq('user_id', data.user.id)
         .single()
 
-      if (!profile || !profile.onboarding_complete) {
+      if (!profile) {
+        // Perfil nao existe — tentar criar a partir do user_metadata (auto-confirm)
+        const meta = data.user.user_metadata
+        if (meta?.role === 'clinic_owner' && meta?.clinic_name) {
+          try {
+            const formData = new FormData()
+            formData.set('clinic_name', meta.clinic_name)
+            formData.set('clinic_phone', meta.clinic_phone || '')
+            formData.set('clinic_address', meta.clinic_address || '')
+            const { createClinicOwnerProfile } = await import('@/services/profiles')
+            await createClinicOwnerProfile(formData)
+            router.push('/dashboard')
+            router.refresh()
+            return
+          } catch {
+            // Falhou — vai pro onboarding
+          }
+        }
         router.push('/onboarding/clinic')
+      } else if (!profile.onboarding_complete) {
+        if (profile.role === 'clinic_owner') router.push('/onboarding/clinic')
+        else router.push('/onboarding/client')
       } else if (profile.role === 'client') {
         router.push('/portal/dashboard')
       } else {

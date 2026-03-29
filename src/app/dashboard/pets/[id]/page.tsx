@@ -80,6 +80,52 @@ export default async function PetDetailPage({
           ))}
         </div>
       )}
+
+      <div className="flex items-center justify-between mb-4 mt-8">
+        <h2 className="text-lg font-semibold">Historico clinico</h2>
+        <Link
+          href={`/dashboard/pets/${id}/medical-records/new?pet_id=${id}`}
+          className="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
+        >
+          Novo registro
+        </Link>
+      </div>
+
+      {!pet.medical_records || pet.medical_records.length === 0 ? (
+        <EmptyState message="Nenhum registro clinico." />
+      ) : (
+        <div className="space-y-3">
+          {pet.medical_records
+            .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
+            .map((record: any) => {
+              const borderColor: Record<string, string> = {
+                consultation: 'border-l-blue-500',
+                surgery: 'border-l-red-500',
+                exam: 'border-l-green-500',
+                emergency: 'border-l-orange-500',
+              }
+              const typeLabel: Record<string, string> = {
+                consultation: 'Consulta',
+                surgery: 'Cirurgia',
+                exam: 'Exame',
+                emergency: 'Emergencia',
+              }
+              return (
+                <div key={record.id} className={`bg-white p-4 rounded-lg shadow-sm border border-l-4 ${borderColor[record.type] || 'border-l-gray-300'}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-medium">{record.date}</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{typeLabel[record.type] || record.type}</span>
+                    {record.vet_name && <span className="text-xs text-gray-400">Dr(a). {record.vet_name}</span>}
+                  </div>
+                  {record.diagnosis && <p className="text-sm"><span className="text-gray-500">Diagnostico:</span> {record.diagnosis}</p>}
+                  {record.treatment && <p className="text-sm"><span className="text-gray-500">Tratamento:</span> {record.treatment}</p>}
+                  {record.weight_kg && <p className="text-sm"><span className="text-gray-500">Peso:</span> {record.weight_kg} kg</p>}
+                  {record.notes && <p className="text-sm text-gray-400 mt-1">{record.notes}</p>}
+                </div>
+              )
+            })}
+        </div>
+      )}
     </div>
   )
 }
