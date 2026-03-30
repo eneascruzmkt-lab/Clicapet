@@ -94,12 +94,12 @@ export async function middleware(request: NextRequest) {
 
   // Login inteligente: redirecionar por role
   if (role === 'client') {
-    if (pathname === '/login' || pathname === '/portal') return redirect(request, '/portal/dashboard')
+    if (pathname === '/portal') return redirect(request, '/portal/dashboard')
     if (pathname.startsWith('/dashboard')) return redirect(request, '/portal/dashboard')
   }
 
   if (role === 'clinic_owner') {
-    if (pathname === '/login' || pathname === '/portal') return redirect(request, '/dashboard')
+    if (pathname === '/login') return redirect(request, '/dashboard')
     if (pathname.startsWith('/portal/dashboard')) return redirect(request, '/dashboard')
   }
 
