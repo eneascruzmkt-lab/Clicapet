@@ -2,8 +2,9 @@ export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
 import { Header } from '@/components/header'
-import { createClient } from '@/lib/supabase/server'
-import { getClinic } from '@/services/clinics'
+import { prisma } from '@/lib/prisma'
+import { auth } from '@/lib/auth'
+import { getSessionData } from '@/lib/auth-utils'
 
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab']
 const monthNames = ['Janeiro', 'Fevereiro', 'Marco', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
@@ -24,7 +25,8 @@ export default async function CalendarioPage({
   searchParams: Promise<{ month?: string }>
 }) {
   const { month } = await searchParams
-  const clinic = await getClinic()
+  const session = await auth()
+  const { clinicId } = getSessionData(session)
 
   const now = new Date()
   let year = now.getFullYear()
@@ -40,27 +42,25 @@ export default async function CalendarioPage({
   const startOffset = firstDay.getDay()
   const totalDays = lastDay.getDate()
 
-  const supabase = await createClient()
-  const startDate = `${year}-${String(monthIdx + 1).padStart(2, '0')}-01`
-  const endDate = `${year}-${String(monthIdx + 1).padStart(2, '0')}-${String(totalDays).padStart(2, '0')}`
+  const startDate = new Date(year, monthIdx, 1, 0, 0, 0)
+  const endDate = new Date(year, monthIdx, totalDays, 23, 59, 59)
 
   let appointments: any[] = []
-  if (clinic) {
-    const { data } = await supabase
-      .from('appointments')
-      .select('id, scheduled_at, type, pets(name)')
-      .eq('clinic_id', clinic.id)
-      .gte('scheduled_at', `${startDate}T00:00:00`)
-      .lte('scheduled_at', `${endDate}T23:59:59`)
-      .order('scheduled_at')
-
-    appointments = data ?? []
+  if (clinicId) {
+    appointments = await prisma.appointment.findMany({
+      where: {
+        clinicId,
+        scheduledAt: { gte: startDate, lte: endDate },
+      },
+      include: { pet: { select: { name: true } } },
+      orderBy: { scheduledAt: 'asc' },
+    })
   }
 
   // Group appointments by day
   const byDay: Record<number, any[]> = {}
   for (const apt of appointments) {
-    const day = new Date(apt.scheduled_at).getDate()
+    const day = new Date(apt.scheduledAt).getDate()
     if (!byDay[day]) byDay[day] = []
     byDay[day].push(apt)
   }
@@ -111,7 +111,7 @@ export default async function CalendarioPage({
                   {dayAppts.slice(0, 2).map((apt: any) => (
                     <div key={apt.id} className="flex items-center gap-1">
                       <span className={`w-1.5 h-1.5 rounded-full ${typeColors[apt.type] || 'bg-gray-400'}`} />
-                      <span className="text-[10px] text-gray-600 truncate">{apt.pets?.name}</span>
+                      <span className="text-[10px] text-gray-600 truncate">{apt.pet?.name}</span>
                     </div>
                   ))}
                   {dayAppts.length > 2 && (

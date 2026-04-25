@@ -26,10 +26,10 @@ export default async function PetDetailPage({
         <p className="text-sm text-gray-500">
           Tutor:{' '}
           <Link
-            href={`/dashboard/clients/${pet.clients.id}`}
+            href={`/dashboard/clients/${pet.client.id}`}
             className="text-blue-600 hover:underline"
           >
-            {pet.clients.name}
+            {pet.client.name}
           </Link>
         </p>
       </div>
@@ -54,11 +54,11 @@ export default async function PetDetailPage({
                 <div>
                   <p className="font-medium">{vaccine.name}</p>
                   <p className="text-sm text-gray-500">
-                    Aplicada em: {vaccine.applied_at}
+                    Aplicada em: {vaccine.appliedAt}
                   </p>
-                  {vaccine.next_due_date && (
+                  {vaccine.nextDueDate && (
                     <p className="text-sm text-gray-500">
-                      Próxima dose: {vaccine.next_due_date}
+                      Próxima dose: {vaccine.nextDueDate}
                     </p>
                   )}
                 </div>
@@ -91,11 +91,11 @@ export default async function PetDetailPage({
         </Link>
       </div>
 
-      {!pet.medical_records || pet.medical_records.length === 0 ? (
+      {!pet.medicalRecords || pet.medicalRecords.length === 0 ? (
         <EmptyState message="Nenhum registro clinico." />
       ) : (
         <div className="space-y-3">
-          {pet.medical_records
+          {pet.medicalRecords
             .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
             .map((record: any) => {
               const borderColor: Record<string, string> = {
@@ -115,11 +115,11 @@ export default async function PetDetailPage({
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-sm font-medium">{record.date}</span>
                     <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{typeLabel[record.type] || record.type}</span>
-                    {record.vet_name && <span className="text-xs text-gray-400">Dr(a). {record.vet_name}</span>}
+                    {record.vetName && <span className="text-xs text-gray-400">Dr(a). {record.vetName}</span>}
                   </div>
                   {record.diagnosis && <p className="text-sm"><span className="text-gray-500">Diagnostico:</span> {record.diagnosis}</p>}
                   {record.treatment && <p className="text-sm"><span className="text-gray-500">Tratamento:</span> {record.treatment}</p>}
-                  {record.weight_kg && <p className="text-sm"><span className="text-gray-500">Peso:</span> {record.weight_kg} kg</p>}
+                  {record.weightKg && <p className="text-sm"><span className="text-gray-500">Peso:</span> {record.weightKg} kg</p>}
                   {record.notes && <p className="text-sm text-gray-400 mt-1">{record.notes}</p>}
                 </div>
               )

@@ -1,6 +1,8 @@
 export const dynamic = 'force-dynamic'
 
-import { createClient } from '@/lib/supabase/server'
+import { auth } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
+import { getSessionData } from '@/lib/auth-utils'
 import Link from 'next/link'
 import Image from 'next/image'
 
@@ -24,7 +26,7 @@ function getSpeciesBadge(species: string) {
   return 'bg-gray-100 text-gray-700'
 }
 
-function calcAge(birthDate: string | null): string | null {
+function calcAge(birthDate: Date | null): string | null {
   if (!birthDate) return null
   const birth = new Date(birthDate)
   const now = new Date()
@@ -38,31 +40,31 @@ function calcAge(birthDate: string | null): string | null {
 }
 
 export default async function MeuPetPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
+  const session = await auth()
+  if (!session?.user) return null
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
+  const { userId } = getSessionData(session)
+
+  const profile = await prisma.profile.findUnique({
+    where: { userId },
+    select: { id: true },
+  })
 
   if (!profile) return null
 
-  const { data: clients } = await supabase
-    .from('clients')
-    .select('id')
-    .eq('profile_id', profile.id)
+  const clients = await prisma.client.findMany({
+    where: { profileId: profile.id },
+    select: { id: true },
+  })
 
-  const clientIds = clients?.map((c) => c.id) ?? []
+  const clientIds = clients.map((c) => c.id)
 
-  const { data: pets } = clientIds.length
-    ? await supabase
-        .from('pets')
-        .select('*, vaccines(id, name, applied_at, next_due_date)')
-        .in('client_id', clientIds)
-    : { data: [] }
+  const pets = clientIds.length
+    ? await prisma.pet.findMany({
+        where: { clientId: { in: clientIds } },
+        include: { vaccines: true },
+      })
+    : []
 
   return (
     <div className="max-w-3xl">
@@ -88,8 +90,8 @@ export default async function MeuPetPage() {
             <Link key={pet.id} href={`/portal/dashboard/pets/${pet.id}`} className="block group">
               <div className={`flex items-center gap-4 p-5 rounded-2xl border-l-4 shadow-sm hover:shadow-md transition-all ${getPetBg(pet.species)}`}>
                 <div className="w-16 h-16 rounded-xl overflow-hidden flex-shrink-0">
-                  {pet.photo_url ? (
-                    <img src={pet.photo_url} alt={pet.name} className="w-full h-full object-cover" />
+                  {pet.photoUrl ? (
+                    <img src={pet.photoUrl} alt={pet.name} className="w-full h-full object-cover" />
                   ) : (
                     <Image
                       src={getPetImage(pet.species)}
@@ -107,17 +109,17 @@ export default async function MeuPetPage() {
                       {pet.species}
                     </span>
                   </div>
-                  {(pet.breed || pet.sex || pet.birth_date) && (
+                  {(pet.breed || pet.sex || pet.birthDate) && (
                     <p className="text-sm text-gray-500">
                       {pet.breed}
-                      {pet.breed && (pet.sex || pet.birth_date) ? ' · ' : ''}
+                      {pet.breed && (pet.sex || pet.birthDate) ? ' · ' : ''}
                       {pet.sex && (
                         <span className={pet.sex === 'M' ? 'text-blue-500' : 'text-pink-500'}>
                           {pet.sex === 'M' ? '\u2642' : '\u2640'}
                         </span>
                       )}
-                      {pet.sex && pet.birth_date ? ' ' : ''}
-                      {calcAge(pet.birth_date)}
+                      {pet.sex && pet.birthDate ? ' ' : ''}
+                      {calcAge(pet.birthDate)}
                     </p>
                   )}
                   {pet.vaccines?.length > 0 && (

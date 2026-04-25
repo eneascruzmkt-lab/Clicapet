@@ -1,36 +1,31 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { prisma } from '@/lib/prisma'
+import { requireAuth, getSessionData } from '@/lib/auth-utils'
 import { redirect } from 'next/navigation'
 
 export async function updatePortalProfile(formData: FormData) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/portal')
+  const session = await requireAuth()
+  const { userId, profileId } = getSessionData(session)
+
+  if (!userId) redirect('/portal')
 
   const name = formData.get('name') as string
   const phone = (formData.get('phone') as string)?.replace(/\D/g, '') || null
 
-  const { error } = await supabase
-    .from('profiles')
-    .update({ name, phone })
-    .eq('user_id', user.id)
+  await prisma.$transaction(async (tx) => {
+    await tx.profile.update({
+      where: { userId },
+      data: { name, phone },
+    })
 
-  if (error) throw new Error('Falha ao atualizar perfil')
-
-  // Also update the client record
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
-
-  if (profile) {
-    await supabase
-      .from('clients')
-      .update({ name, phone })
-      .eq('profile_id', profile.id)
-  }
+    if (profileId) {
+      await tx.client.updateMany({
+        where: { profileId },
+        data: { name, phone },
+      })
+    }
+  })
 
   redirect('/portal/dashboard/perfil')
 }

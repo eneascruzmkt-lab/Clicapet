@@ -69,15 +69,15 @@ export default async function FinanceiroPage() {
               <div>
                 <p className="font-medium">{t.description}</p>
                 <p className="text-sm text-gray-500">
-                  {t.date} {t.clients?.name ? `— ${t.clients.name}` : ''}
+                  {t.date} {t.client?.name ? `— ${t.clients.name}` : ''}
                 </p>
               </div>
               <div className="text-right">
                 <p className={`font-bold ${t.type === 'revenue' ? 'text-green-600' : 'text-red-600'}`}>
                   {t.type === 'revenue' ? '+' : '-'}{fmtMoney(parseFloat(t.amount))}
                 </p>
-                {t.payment_method && (
-                  <span className="text-xs text-gray-400">{methodLabels[t.payment_method] || t.payment_method}</span>
+                {t.paymentMethod && (
+                  <span className="text-xs text-gray-400">{methodLabels[t.paymentMethod] || t.paymentMethod}</span>
                 )}
               </div>
             </div>

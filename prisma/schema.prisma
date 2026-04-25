@@ -1,0 +1,290 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  password       String
+  emailVerified  Boolean   @default(false)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  profile        Profile?
+  verificationCodes VerificationCode[]
+
+  @@map("users")
+}
+
+model VerificationCode {
+  id        String   @id @default(cuid())
+  email     String
+  code      String
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [email], references: [email], onDelete: Cascade)
+
+  @@map("verification_codes")
+}
+
+model Profile {
+  id                 String   @id @default(cuid())
+  userId             String   @unique @map("user_id")
+  role               String
+  name               String?
+  phone              String?
+  cpf                String?
+  clinicId           String?  @map("clinic_id")
+  onboardingComplete Boolean  @default(false) @map("onboarding_complete")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clinic  Clinic?  @relation("ProfileClinic", fields: [clinicId], references: [id])
+  clients Client[] @relation("ProfileClients")
+
+  @@map("profiles")
+}
+
+model Clinic {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  name       String
+  phone      String?
+  address    String?
+  inviteCode String   @unique @map("invite_code")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  profiles              Profile[]              @relation("ProfileClinic")
+  appointments          Appointment[]
+  transactions          Transaction[]
+  availableSlots        AvailableSlot[]
+  staff                 Staff[]
+  groomingServices      GroomingService[]
+  groomingAppointments  GroomingAppointment[]
+
+  @@map("clinics")
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  userId    String?  @map("user_id")
+  profileId String?  @map("profile_id")
+  name      String
+  phone     String?
+  email     String?
+  clinicId  String   @map("clinic_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  profile      Profile?      @relation("ProfileClients", fields: [profileId], references: [id])
+  pets         Pet[]
+  transactions Transaction[]
+
+  @@map("clients")
+}
+
+model Pet {
+  id        String   @id @default(cuid())
+  clientId  String   @map("client_id")
+  name      String
+  species   String?
+  breed     String?
+  birthDate DateTime? @map("birth_date") @db.Date
+  sex       String?
+  color     String?
+  photoUrl  String?  @map("photo_url")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  client         Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  vaccines       Vaccine[]
+  medicalRecords MedicalRecord[]
+  prescriptions  Prescription[]
+  examFiles      ExamFile[]
+  weightRecords  WeightRecord[]
+  appointments   Appointment[]
+  transactions   Transaction[]
+
+  @@map("pets")
+}
+
+model Vaccine {
+  id          String    @id @default(cuid())
+  petId       String    @map("pet_id")
+  name        String
+  appliedAt   DateTime? @map("applied_at") @db.Date
+  nextDueDate DateTime? @map("next_due_date") @db.Date
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  pet       Pet        @relation(fields: [petId], references: [id], onDelete: Cascade)
+  reminders Reminder[]
+
+  @@map("vaccines")
+}
+
+model Reminder {
+  id        String   @id @default(cuid())
+  vaccineId String   @map("vaccine_id")
+  sendAt    DateTime @map("send_at") @db.Date
+  status    String   @default("pending")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  vaccine Vaccine @relation(fields: [vaccineId], references: [id], onDelete: Cascade)
+
+  @@map("reminders")
+}
+
+model Appointment {
+  id          String   @id @default(cuid())
+  petId       String   @map("pet_id")
+  clinicId    String   @map("clinic_id")
+  scheduledAt DateTime @map("scheduled_at")
+  type        String
+  notes       String?
+  status      String   @default("pending")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  pet          Pet           @relation(fields: [petId], references: [id], onDelete: Cascade)
+  clinic       Clinic        @relation(fields: [clinicId], references: [id])
+  transactions Transaction[]
+
+  @@map("appointments")
+}
+
+model MedicalRecord {
+  id        String   @id @default(cuid())
+  petId     String   @map("pet_id")
+  date      DateTime @db.Date
+  type      String
+  diagnosis String?
+  treatment String?
+  notes     String?
+  weightKg  Decimal? @map("weight_kg")
+  vetName   String?  @map("vet_name")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@map("medical_records")
+}
+
+model Transaction {
+  id            String   @id @default(cuid())
+  clinicId      String   @map("clinic_id")
+  clientId      String?  @map("client_id")
+  petId         String?  @map("pet_id")
+  appointmentId String?  @map("appointment_id")
+  description   String
+  amount        Decimal
+  type          String
+  paymentMethod String?  @map("payment_method")
+  date          DateTime @db.Date
+  notes         String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  clinic      Clinic       @relation(fields: [clinicId], references: [id])
+  client      Client?      @relation(fields: [clientId], references: [id])
+  pet         Pet?         @relation(fields: [petId], references: [id])
+  appointment Appointment? @relation(fields: [appointmentId], references: [id])
+
+  @@map("transactions")
+}
+
+model AvailableSlot {
+  id           String   @id @default(cuid())
+  clinicId     String   @map("clinic_id")
+  dayOfWeek    Int      @map("day_of_week")
+  startTime    String   @map("start_time")
+  endTime      String   @map("end_time")
+  slotDuration Int      @map("slot_duration")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  clinic Clinic @relation(fields: [clinicId], references: [id])
+
+  @@map("available_slots")
+}
+
+model Prescription {
+  id        String   @id @default(cuid())
+  petId     String   @map("pet_id")
+  clinicId  String   @map("clinic_id")
+  content   String
+  vetName   String?  @map("vet_name")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@map("prescriptions")
+}
+
+model ExamFile {
+  id        String   @id @default(cuid())
+  petId     String   @map("pet_id")
+  fileName  String   @map("file_name")
+  fileUrl   String   @map("file_url")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@map("exam_files")
+}
+
+model WeightRecord {
+  id        String   @id @default(cuid())
+  petId     String   @map("pet_id")
+  weightKg  Decimal  @map("weight_kg")
+  date      DateTime @db.Date
+  createdAt DateTime @default(now()) @map("created_at")
+
+  pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@map("weight_records")
+}
+
+model Staff {
+  id        String   @id @default(cuid())
+  clinicId  String   @map("clinic_id")
+  name      String
+  role      String
+  phone     String?
+  email     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  clinic Clinic @relation(fields: [clinicId], references: [id])
+
+  @@map("staff")
+}
+
+model GroomingService {
+  id        String   @id @default(cuid())
+  clinicId  String   @map("clinic_id")
+  name      String
+  price     Decimal
+  duration  Int
+  createdAt DateTime @default(now()) @map("created_at")
+
+  clinic               Clinic                @relation(fields: [clinicId], references: [id])
+  groomingAppointments GroomingAppointment[]
+
+  @@map("grooming_services")
+}
+
+model GroomingAppointment {
+  id          String   @id @default(cuid())
+  clinicId    String   @map("clinic_id")
+  petId       String   @map("pet_id")
+  serviceId   String   @map("service_id")
+  scheduledAt DateTime @map("scheduled_at")
+  status      String   @default("pending")
+  notes       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  clinic  Clinic          @relation(fields: [clinicId], references: [id])
+  service GroomingService @relation(fields: [serviceId], references: [id])
+
+  @@map("grooming_appointments")
+}

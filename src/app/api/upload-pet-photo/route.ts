@@ -1,37 +1,41 @@
-import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
+import { auth } from '@/lib/auth'
+import { cloudinary } from '@/lib/cloudinary'
+import { prisma } from '@/lib/prisma'
+import { NextRequest, NextResponse } from 'next/server'
 
-export async function POST(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+export async function POST(request: NextRequest) {
+  const session = await auth()
+  if (!session?.user) return NextResponse.json({ error: 'Nao autorizado' }, { status: 401 })
 
   const formData = await request.formData()
   const file = formData.get('file') as File
-  const petId = formData.get('pet_id') as string
+  const petId = formData.get('pet_id') as string || formData.get('petId') as string
 
-  if (!file || !petId) return NextResponse.json({ error: 'Arquivo e pet_id obrigatorios' }, { status: 400 })
+  if (!file || !petId) {
+    return NextResponse.json({ error: 'Arquivo e petId sao obrigatorios' }, { status: 400 })
+  }
 
-  const ext = file.name.split('.').pop() || 'jpg'
-  const fileName = `${petId}-${Date.now()}.${ext}`
+  const bytes = await file.arrayBuffer()
+  const buffer = Buffer.from(bytes)
 
-  const { error: uploadError } = await supabase.storage
-    .from('pet-photos')
-    .upload(fileName, file, { upsert: true })
+  try {
+    const result = await new Promise<any>((resolve, reject) => {
+      cloudinary.uploader.upload_stream(
+        { folder: 'clicapet/pets', public_id: `${petId}-${Date.now()}` },
+        (error, result) => {
+          if (error) reject(error)
+          else resolve(result)
+        }
+      ).end(buffer)
+    })
 
-  if (uploadError) return NextResponse.json({ error: 'Erro no upload: ' + uploadError.message }, { status: 400 })
+    await prisma.pet.update({
+      where: { id: petId },
+      data: { photoUrl: result.secure_url },
+    })
 
-  const { data: urlData } = supabase.storage
-    .from('pet-photos')
-    .getPublicUrl(fileName)
-
-  // Salvar URL na tabela pets (coluna photo_url)
-  const { error: updateError } = await supabase
-    .from('pets')
-    .update({ photo_url: urlData.publicUrl })
-    .eq('id', petId)
-
-  if (updateError) return NextResponse.json({ error: 'Erro ao salvar: ' + updateError.message }, { status: 400 })
-
-  return NextResponse.json({ url: urlData.publicUrl })
+    return NextResponse.json({ url: result.secure_url })
+  } catch (error: any) {
+    return NextResponse.json({ error: 'Erro no upload: ' + error.message }, { status: 400 })
+  }
 }

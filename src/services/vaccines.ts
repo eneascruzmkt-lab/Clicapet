@@ -1,30 +1,39 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { prisma } from '@/lib/prisma'
 import { redirect } from 'next/navigation'
 
 export async function createVaccineAction(formData: FormData) {
   const petId = formData.get('pet_id') as string
   const nextDueDate = formData.get('next_due_date') as string
 
-  const supabase = await createClient()
+  if (nextDueDate) {
+    await prisma.$transaction(async (tx) => {
+      const vaccine = await tx.vaccine.create({
+        data: {
+          petId,
+          name: formData.get('name') as string,
+          appliedAt: new Date(formData.get('applied_at') as string),
+          nextDueDate: new Date(nextDueDate),
+        },
+      })
 
-  const { data: vaccine, error } = await supabase
-    .from('vaccines')
-    .insert({
-      pet_id: petId,
-      name: formData.get('name') as string,
-      applied_at: formData.get('applied_at') as string,
-      next_due_date: nextDueDate || null,
+      await tx.reminder.create({
+        data: {
+          vaccineId: vaccine.id,
+          sendAt: new Date(nextDueDate),
+          status: 'pending',
+        },
+      })
     })
-    .select()
-    .single()
-
-  if (!error && vaccine && nextDueDate) {
-    await supabase.from('reminders').insert({
-      vaccine_id: vaccine.id,
-      send_at: nextDueDate,
-      status: 'pending',
+  } else {
+    await prisma.vaccine.create({
+      data: {
+        petId,
+        name: formData.get('name') as string,
+        appliedAt: new Date(formData.get('applied_at') as string),
+        nextDueDate: null,
+      },
     })
   }
 

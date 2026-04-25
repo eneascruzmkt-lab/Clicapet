@@ -1,97 +1,102 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { prisma } from '@/lib/prisma'
+import { requireAuth, getSessionData } from '@/lib/auth-utils'
+import { auth } from '@/lib/auth'
 
 export async function getProfile() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
+  const session = await auth()
+  if (!session?.user) return null
 
-  const { data } = await supabase
-    .from('profiles')
-    .select('*, clinics(*)')
-    .eq('user_id', user.id)
-    .single()
+  const { userId } = getSessionData(session)
 
-  return data
+  const profile = await prisma.profile.findUnique({
+    where: { userId },
+    include: { clinic: true },
+  })
+
+  return profile
 }
 
 export async function createClinicOwnerProfile(formData: FormData) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
+  const session = await requireAuth()
+  const { userId } = getSessionData(session)
 
   const { generateInviteCode } = await import('@/lib/utils/invite-code')
 
-  const { data: clinic, error: clinicError } = await supabase
-    .from('clinics')
-    .insert({
-      user_id: user.id,
-      name: formData.get('clinic_name') as string,
-      phone: (formData.get('clinic_phone') as string)?.replace(/\D/g, '') || null,
-      address: (formData.get('clinic_address') as string) || null,
-      invite_code: generateInviteCode(),
-    })
-    .select()
-    .single()
+  const clinicName = formData.get('clinic_name') as string
+  const clinicPhone = (formData.get('clinic_phone') as string)?.replace(/\D/g, '') || null
+  const clinicAddress = (formData.get('clinic_address') as string) || null
 
-  if (clinicError || !clinic) throw new Error('Failed to create clinic')
-
-  const { error: profileError } = await supabase
-    .from('profiles')
-    .insert({
-      user_id: user.id,
-      role: 'clinic_owner',
-      name: formData.get('clinic_name') as string,
-      phone: (formData.get('clinic_phone') as string)?.replace(/\D/g, '') || null,
-      clinic_id: clinic.id,
-      onboarding_complete: true,
+  await prisma.$transaction(async (tx) => {
+    const clinic = await tx.clinic.create({
+      data: {
+        userId,
+        name: clinicName,
+        phone: clinicPhone,
+        address: clinicAddress,
+        inviteCode: generateInviteCode(),
+      },
     })
 
-  if (profileError) throw new Error('Failed to create profile')
+    await tx.profile.create({
+      data: {
+        userId,
+        role: 'clinic_owner',
+        name: clinicName,
+        phone: clinicPhone,
+        clinicId: clinic.id,
+        onboardingComplete: true,
+      },
+    })
+  })
 }
 
 export async function createClientProfile(formData: FormData) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
+  const session = await requireAuth()
+  const { userId } = getSessionData(session)
 
   const inviteCode = formData.get('invite_code') as string
 
-  const { data: clinic } = await supabase
-    .from('clinics')
-    .select('id, user_id')
-    .eq('invite_code', inviteCode.toUpperCase().trim())
-    .single()
+  const clinic = await prisma.clinic.findUnique({
+    where: { inviteCode: inviteCode.toUpperCase().trim() },
+    select: { id: true, userId: true },
+  })
 
   if (!clinic) throw new Error('Codigo de convite invalido')
 
   const name = formData.get('name') as string
   const phone = (formData.get('phone') as string)?.replace(/\D/g, '') || null
+  const cpf = (formData.get('cpf') as string)?.replace(/\D/g, '') || null
 
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .insert({
-      user_id: user.id,
-      role: 'client',
-      name,
-      phone,
-      cpf: (formData.get('cpf') as string)?.replace(/\D/g, '') || null,
-      clinic_id: clinic.id,
-      onboarding_complete: true,
-    })
-    .select()
-    .single()
-
-  if (profileError || !profile) throw new Error('Failed to create profile')
-
-  const { error: clientError } = await supabase.from('clients').insert({
-    user_id: clinic.user_id,
-    profile_id: profile.id,
-    name,
-    phone,
-    email: user.email,
+  // Get user email for the client record
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
   })
 
-  if (clientError) throw new Error('Failed to create client record')
+  await prisma.$transaction(async (tx) => {
+    const profile = await tx.profile.create({
+      data: {
+        userId,
+        role: 'client',
+        name,
+        phone,
+        cpf,
+        clinicId: clinic.id,
+        onboardingComplete: true,
+      },
+    })
+
+    await tx.client.create({
+      data: {
+        userId: clinic.userId,
+        profileId: profile.id,
+        name,
+        phone,
+        email: user?.email ?? null,
+        clinicId: clinic.id,
+      },
+    })
+  })
 }

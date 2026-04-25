@@ -1,8 +1,8 @@
 'use client'
 
-import { createClient } from '@/lib/supabase/client'
+import { signIn } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { PhoneInput } from '@/components/phone-input'
@@ -12,24 +12,9 @@ export default function PortalLoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isSignUp, setIsSignUp] = useState(false)
-  const [emailSent, setEmailSent] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [signingOut, setSigningOut] = useState(false)
   const router = useRouter()
-  const supabase = createClient()
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user?.user_metadata?.role === 'clinic_owner') {
-        setSigningOut(true)
-        supabase.auth.signOut().then(() => {
-          setSigningOut(false)
-          router.refresh()
-        })
-      }
-    })
-  }, [supabase, router])
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -43,167 +28,69 @@ export default function PortalLoginPage() {
       const phone = (formData.get('phone') as string)?.replace(/\D/g, '') || ''
       const cpf = (formData.get('cpf') as string)?.replace(/\D/g, '') || ''
 
-      const { data: clinic } = await supabase
-        .from('clinics')
-        .select('id, name')
-        .eq('invite_code', inviteCode)
-        .single()
-
-      if (!clinic) {
-        setError('Codigo de convite invalido')
+      if (!inviteCode) {
+        setError('Codigo de convite e obrigatorio')
         setLoading(false)
         return
       }
 
-      const { data: existingLogin } = await supabase.auth.signInWithPassword({ email, password })
-      if (existingLogin?.user) {
-        const { data: existingProfile } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('user_id', existingLogin.user.id)
-          .single()
-        if (existingProfile?.role === 'clinic_owner') {
-          await supabase.auth.signOut()
-          setError('Este email ja esta cadastrado como dono de clinica. Use um email diferente.')
-          setLoading(false)
-          return
-        }
-      }
-      if (existingLogin?.session) {
-        await supabase.auth.signOut()
-      }
-
-      const { error, data: signUpData } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            role: 'client',
-            name,
-            phone,
-            cpf,
-            invite_code: inviteCode,
-          },
-        },
+      // Create account via signup API
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
       })
 
-      if (error) {
-        setError(error.message)
-        setLoading(false)
-        return
-      }
-
-      // Se auto-confirmado (sem email), criar perfil e ir direto pro portal
-      if (signUpData.session) {
-        try {
-          const res = await fetch('/api/signup-tutor', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, phone, cpf, invite_code: inviteCode }),
-          })
-          const result = await res.json()
-          if (!res.ok) {
-            setError(result.error || 'Erro ao criar perfil')
-            setLoading(false)
-            return
-          }
-          router.push('/portal/dashboard')
-          router.refresh()
-          return
-        } catch {
-          router.push('/onboarding/client')
-          return
-        }
-      }
-
-      setEmailSent(true)
-      setLoading(false)
-    } else {
-      const { error, data } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) {
-        setError(error.message)
-        setLoading(false)
-        return
-      }
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role, onboarding_complete')
-        .eq('user_id', data.user.id)
-        .single()
-
-      if (!profile) {
-        // Perfil nao existe — tentar criar a partir do user_metadata (auto-confirm)
-        const meta = data.user.user_metadata
-        if (meta?.role === 'client' && meta?.name && meta?.invite_code) {
-          try {
-            const res = await fetch('/api/signup-tutor', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                name: meta.name,
-                phone: meta.phone || '',
-                cpf: meta.cpf || '',
-                invite_code: meta.invite_code,
-              }),
-            })
-            if (res.ok) {
-              router.push('/portal/dashboard')
-              router.refresh()
-              return
-            }
-          } catch {
-            // Falhou — vai pro onboarding
-          }
-        }
-        router.push('/onboarding/client')
-      } else if (!profile.onboarding_complete) {
-        router.push('/onboarding/client')
-      } else if (profile.role === 'clinic_owner') {
-        await supabase.auth.signOut()
-        setError('Esta conta e de dono de clinica. Use a tela "Sou Veterinario" para entrar.')
-        setLoading(false)
-        return
+      if (res.ok) {
+        // Store tutor data in localStorage for onboarding after verification
+        localStorage.setItem('clicapet_invite_code', inviteCode)
+        localStorage.setItem('clicapet_tutor_data', JSON.stringify({
+          name,
+          phone,
+          cpf,
+          invite_code: inviteCode,
+        }))
+        router.push(`/verify-email?email=${encodeURIComponent(email)}`)
       } else {
+        const data = await res.json()
+        setError(data.error || 'Erro ao criar conta')
+        setLoading(false)
+      }
+    } else {
+      // Login flow
+      const result = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      })
+
+      if (result?.error) {
+        setError('Email ou senha invalidos')
+        setLoading(false)
+        return
+      }
+
+      // Fetch session to check role and onboarding status
+      try {
+        const sessionRes = await fetch('/api/auth/session')
+        const session = await sessionRes.json()
+
+        if (!session?.role) {
+          router.push('/onboarding/client')
+        } else if (!session.onboardingComplete) {
+          router.push('/onboarding/client')
+        } else if (session.role === 'clinic_owner') {
+          setError('Esta conta e de dono de clinica. Use a tela "Sou Veterinario" para entrar.')
+          setLoading(false)
+          return
+        } else {
+          router.push('/portal/dashboard')
+        }
+      } catch {
         router.push('/portal/dashboard')
       }
       router.refresh()
     }
-  }
-
-  if (signingOut) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <p className="text-gray-500">Saindo da conta da clinica...</p>
-      </div>
-    )
-  }
-
-  if (emailSent) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-amber-50">
-        <div className="w-full max-w-sm p-8 bg-white rounded-2xl shadow-lg text-center">
-          <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-amber-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" />
-            </svg>
-          </div>
-          <h1 className="text-2xl font-bold mb-2 text-gray-900">Confirme seu email</h1>
-          <p className="text-gray-500 mb-4">
-            Enviamos um link de confirmacao para <strong>{email}</strong>
-          </p>
-          <p className="text-sm text-gray-400">
-            Verifique sua caixa de entrada e clique no link para ativar sua conta.
-          </p>
-          <button
-            onClick={() => { setEmailSent(false); setIsSignUp(false) }}
-            className="mt-6 text-sm text-amber-600 hover:underline"
-          >
-            Voltar para login
-          </button>
-        </div>
-      </div>
-    )
   }
 
   return (

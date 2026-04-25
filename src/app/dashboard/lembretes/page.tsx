@@ -3,39 +3,56 @@ export const dynamic = 'force-dynamic'
 import { Header } from '@/components/header'
 import { EmptyState } from '@/components/empty-state'
 import { WhatsAppButton } from '@/components/whatsapp-button'
-import { createClient } from '@/lib/supabase/server'
+import { prisma } from '@/lib/prisma'
 import { buildVaccineReminderMessage, buildAppointmentReminderMessage } from '@/lib/whatsapp'
 import { getClinic } from '@/services/clinics'
 
 export default async function LembretesPage() {
-  const supabase = await createClient()
   const clinic = await getClinic()
 
   const today = new Date().toISOString().split('T')[0]
   const weekFromNow = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
 
   // Vacinas com proxima dose nos proximos 7 dias
-  const { data: vaccineReminders } = await supabase
-    .from('vaccines')
-    .select('id, name, next_due_date, pets(name, clients(name, phone))')
-    .not('next_due_date', 'is', null)
-    .gte('next_due_date', today)
-    .lte('next_due_date', weekFromNow)
-    .order('next_due_date')
+  const vaccineReminders = await prisma.vaccine.findMany({
+    where: {
+      nextDueDate: {
+        not: null,
+        gte: new Date(`${today}T00:00:00`),
+        lte: new Date(`${weekFromNow}T23:59:59`),
+      },
+    },
+    include: {
+      pet: {
+        include: {
+          client: true,
+        },
+      },
+    },
+    orderBy: { nextDueDate: 'asc' },
+  })
 
   // Consultas nos proximos 7 dias
   let appointmentReminders: any[] = []
   if (clinic) {
-    const { data } = await supabase
-      .from('appointments')
-      .select('id, scheduled_at, type, pets(name, clients(name, phone))')
-      .eq('clinic_id', clinic.id)
-      .eq('status', 'pending')
-      .gte('scheduled_at', `${today}T00:00:00`)
-      .lte('scheduled_at', `${weekFromNow}T23:59:59`)
-      .order('scheduled_at')
-
-    appointmentReminders = data ?? []
+    appointmentReminders = await prisma.appointment.findMany({
+      where: {
+        clinicId: clinic.id,
+        status: 'pending',
+        scheduledAt: {
+          gte: new Date(`${today}T00:00:00`),
+          lte: new Date(`${weekFromNow}T23:59:59`),
+        },
+      },
+      include: {
+        pet: {
+          include: {
+            client: true,
+          },
+        },
+      },
+      orderBy: { scheduledAt: 'asc' },
+    })
   }
 
   const hasVaccines = vaccineReminders && vaccineReminders.length > 0
@@ -51,19 +68,20 @@ export default async function LembretesPage() {
       ) : (
         <div className="bg-white rounded-lg shadow-sm border divide-y mb-8">
           {vaccineReminders.map((v: any) => {
-            const client = v.pets?.clients
+            const client = v.pet?.client
+            const nextDueDateStr = v.nextDueDate ? new Date(v.nextDueDate).toISOString().split('T')[0] : ''
             const message = buildVaccineReminderMessage(
               client?.name || 'Cliente',
-              v.pets?.name || 'Pet',
+              v.pet?.name || 'Pet',
               v.name,
-              v.next_due_date
+              nextDueDateStr
             )
             return (
               <div key={v.id} className="p-4 flex items-center justify-between">
                 <div>
-                  <p className="font-medium">{v.name} — {v.pets?.name}</p>
+                  <p className="font-medium">{v.name} - {v.pet?.name}</p>
                   <p className="text-sm text-gray-500">
-                    Tutor: {client?.name || '—'} | Vence: {v.next_due_date}
+                    Tutor: {client?.name || '-'} | Vence: {nextDueDateStr}
                   </p>
                 </div>
                 <WhatsAppButton phone={client?.phone || ''} message={message} />
@@ -79,11 +97,11 @@ export default async function LembretesPage() {
       ) : (
         <div className="bg-white rounded-lg shadow-sm border divide-y">
           {appointmentReminders.map((a: any) => {
-            const client = a.pets?.clients
-            const dateStr = new Date(a.scheduled_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+            const client = a.pet?.client
+            const dateStr = new Date(a.scheduledAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
             const message = buildAppointmentReminderMessage(
               client?.name || 'Cliente',
-              a.pets?.name || 'Pet',
+              a.pet?.name || 'Pet',
               dateStr,
               a.type
             )
@@ -91,10 +109,10 @@ export default async function LembretesPage() {
               <div key={a.id} className="p-4 flex items-center justify-between">
                 <div>
                   <p className="font-medium">
-                    {a.type === 'vaccine' ? 'Vacinacao' : 'Consulta'} — {a.pets?.name}
+                    {a.type === 'vaccine' ? 'Vacinacao' : 'Consulta'} - {a.pet?.name}
                   </p>
                   <p className="text-sm text-gray-500">
-                    Tutor: {client?.name || '—'} | {dateStr}
+                    Tutor: {client?.name || '-'} | {dateStr}
                   </p>
                 </div>
                 <WhatsAppButton phone={client?.phone || ''} message={message} />

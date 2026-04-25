@@ -1,8 +1,8 @@
 'use client'
 
-import { createClient } from '@/lib/supabase/client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useSession } from 'next-auth/react'
 
 const DAYS_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab']
 const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
@@ -42,43 +42,32 @@ export default function NewAppointmentPage() {
   const [selectedTime, setSelectedTime] = useState('')
   const [notes, setNotes] = useState('')
 
-  const supabase = createClient()
   const router = useRouter()
+  const { data: session } = useSession()
 
   useEffect(() => {
     loadData()
   }, [])
 
   async function loadData() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('user_id', user.id)
-      .single()
-
-    if (profile) {
-      const { data: clients } = await supabase
-        .from('clients')
-        .select('id')
-        .eq('profile_id', profile.id)
-
-      const clientIds = clients?.map((c) => c.id) ?? []
-      if (clientIds.length) {
-        const { data } = await supabase.from('pets').select('id, name, species').in('client_id', clientIds)
-        const petList = data ?? []
+    try {
+      // Fetch pets via API
+      const petsRes = await fetch('/api/portal/pets')
+      if (petsRes.ok) {
+        const petsData = await petsRes.json()
+        const petList = petsData.pets ?? []
         setPets(petList)
-        // Auto-selecionar se tem apenas 1 pet
         if (petList.length === 1) setPetId(petList[0].id)
       }
-    }
 
-    const res = await fetch('/api/available-slots')
-    const json = await res.json()
-    setSlots(json.slots ?? [])
-    setBookedTimes(json.appointments ?? [])
+      // Fetch available slots
+      const res = await fetch('/api/available-slots')
+      const json = await res.json()
+      setSlots(json.slots ?? [])
+      setBookedTimes(json.appointments ?? [])
+    } catch {
+      // ignore
+    }
     setLoading(false)
   }
 
@@ -147,37 +136,34 @@ export default function NewAppointmentPage() {
 
     const scheduledAt = `${selectedDate}T${selectedTime}:00`
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('clinic_id')
-      .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
-      .single()
+    try {
+      const res = await fetch('/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          petId,
+          scheduledAt,
+          type,
+          notes: notes || null,
+        }),
+      })
 
-    if (!profile?.clinic_id) {
-      setError('Clinica nao encontrada')
+      if (!res.ok) {
+        const data = await res.json()
+        setError(data.error || 'Erro ao agendar')
+        setSubmitting(false)
+        return
+      }
+
+      setSuccess(true)
+      setTimeout(() => {
+        router.push('/portal/dashboard')
+        router.refresh()
+      }, 1500)
+    } catch {
+      setError('Erro de conexao')
       setSubmitting(false)
-      return
     }
-
-    const { error: insertError } = await supabase.from('appointments').insert({
-      pet_id: petId,
-      clinic_id: profile.clinic_id,
-      scheduled_at: scheduledAt,
-      type,
-      notes: notes || null,
-    })
-
-    if (insertError) {
-      setError('Erro ao agendar: ' + insertError.message)
-      setSubmitting(false)
-      return
-    }
-
-    setSuccess(true)
-    setTimeout(() => {
-      router.push('/portal/dashboard')
-      router.refresh()
-    }, 1500)
   }
 
   if (loading) {
@@ -244,7 +230,7 @@ export default function NewAppointmentPage() {
       <p className="text-sm text-gray-400 mb-6">Selecione as opcoes abaixo</p>
 
       <div className="space-y-6">
-        {/* Step 1: Tipo — toggle visual */}
+        {/* Step 1: Tipo */}
         <div className="bg-white rounded-2xl border border-gray-100 p-5">
           <p className="text-sm font-medium text-gray-700 mb-3">Tipo de atendimento</p>
           <div className="grid grid-cols-2 gap-3">
@@ -281,7 +267,7 @@ export default function NewAppointmentPage() {
           </div>
         </div>
 
-        {/* Step 2: Pet — auto-select se 1, senao cards */}
+        {/* Step 2: Pet */}
         {pets.length > 1 && (
           <div className="bg-white rounded-2xl border border-gray-100 p-5">
             <p className="text-sm font-medium text-gray-700 mb-3">Selecione o pet</p>
@@ -303,7 +289,7 @@ export default function NewAppointmentPage() {
           </div>
         )}
 
-        {/* Step 3: Data — calendario horizontal */}
+        {/* Step 3: Data */}
         <div className="bg-white rounded-2xl border border-gray-100 p-5">
           <p className="text-sm font-medium text-gray-700 mb-3">Escolha a data</p>
           <div className="flex gap-2 overflow-x-auto pb-2">
@@ -326,12 +312,12 @@ export default function NewAppointmentPage() {
           </div>
         </div>
 
-        {/* Step 4: Horario — agrupado por periodo */}
+        {/* Step 4: Horario */}
         {selectedDate && (
           <div className="bg-white rounded-2xl border border-gray-100 p-5">
             <p className="text-sm font-medium text-gray-700 mb-3">
               Horario disponivel
-              {availableTimes.length === 0 && <span className="text-gray-400 font-normal ml-1">— nenhum livre</span>}
+              {availableTimes.length === 0 && <span className="text-gray-400 font-normal ml-1">- nenhum livre</span>}
             </p>
             {availableTimes.length > 0 ? (
               <div className="space-y-4">
@@ -384,7 +370,7 @@ export default function NewAppointmentPage() {
           </div>
         )}
 
-        {/* Observacoes — colapsavel */}
+        {/* Observacoes */}
         {selectedTime && (
           <div className="bg-white rounded-2xl border border-gray-100 p-5">
             <p className="text-sm font-medium text-gray-700 mb-2">
@@ -405,7 +391,7 @@ export default function NewAppointmentPage() {
           <div className="bg-amber-50 rounded-2xl border border-amber-200 p-5">
             <p className="text-xs text-amber-600 uppercase tracking-wider font-medium mb-2">Resumo</p>
             <div className="flex items-center justify-between text-sm text-gray-700">
-              <span>{type === 'consultation' ? 'Consulta' : 'Vacina'} — {pets.find((p) => p.id === petId)?.name}</span>
+              <span>{type === 'consultation' ? 'Consulta' : 'Vacina'} - {pets.find((p) => p.id === petId)?.name}</span>
               <span className="font-medium">
                 {new Date(selectedDate + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' })} as {selectedTime}
               </span>

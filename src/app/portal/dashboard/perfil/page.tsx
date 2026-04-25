@@ -1,22 +1,24 @@
 export const dynamic = 'force-dynamic'
 
-import { createClient } from '@/lib/supabase/server'
+import { auth } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
+import { getSessionData } from '@/lib/auth-utils'
 import { updatePortalProfile } from '@/services/portal-profile'
 
 export default async function PerfilPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
+  const session = await auth()
+  if (!session?.user) return null
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('name, phone, cpf, clinics(name, phone)')
-    .eq('user_id', user.id)
-    .single()
+  const { userId } = getSessionData(session)
+
+  const profile = await prisma.profile.findUnique({
+    where: { userId },
+    select: { name: true, phone: true, cpf: true, clinic: { select: { name: true, phone: true } } },
+  })
 
   if (!profile) return null
 
-  const clinic = (profile as any).clinics
+  const clinic = profile.clinic
 
   return (
     <div className="max-w-lg">
@@ -56,7 +58,7 @@ export default async function PerfilPage() {
           <input
             type="email"
             disabled
-            value={user.email ?? ''}
+            value={session.user.email ?? ''}
             className="w-full px-4 py-2.5 border border-gray-100 rounded-xl bg-gray-50 text-gray-400"
           />
         </div>

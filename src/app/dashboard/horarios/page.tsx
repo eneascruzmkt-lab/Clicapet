@@ -1,18 +1,16 @@
 'use client'
 
-import { createClient } from '@/lib/supabase/client'
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { Header } from '@/components/header'
 
 const DAYS = ['Domingo', 'Segunda', 'Terca', 'Quarta', 'Quinta', 'Sexta', 'Sabado']
 
 type Slot = {
   id: string
-  day_of_week: number
-  start_time: string
-  end_time: string
-  slot_duration: number
+  dayOfWeek: number
+  startTime: string
+  endTime: string
+  slotDuration: number
   active: boolean
 }
 
@@ -20,56 +18,39 @@ export default function HorariosPage() {
   const [slots, setSlots] = useState<Slot[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [clinicId, setClinicId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [formDay, setFormDay] = useState(1)
   const [formStart, setFormStart] = useState('08:00')
   const [formEnd, setFormEnd] = useState('18:00')
   const [formDuration, setFormDuration] = useState(30)
-  const supabase = createClient()
-  const router = useRouter()
 
   useEffect(() => {
     loadSlots()
   }, [])
 
   async function loadSlots() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: clinic } = await supabase
-      .from('clinics')
-      .select('id')
-      .eq('user_id', user.id)
-      .single()
-
-    if (!clinic) return
-    setClinicId(clinic.id)
-
-    const { data } = await supabase
-      .from('available_slots')
-      .select('*')
-      .eq('clinic_id', clinic.id)
-      .order('day_of_week')
-      .order('start_time')
-
-    setSlots(data ?? [])
+    const res = await fetch('/api/available-slots')
+    if (!res.ok) return
+    const data = await res.json()
+    setSlots(data.slots ?? [])
     setLoading(false)
   }
 
   async function handleAdd() {
-    if (!clinicId) return
     setSaving(true)
 
-    const { error } = await supabase.from('available_slots').insert({
-      clinic_id: clinicId,
-      day_of_week: formDay,
-      start_time: formStart,
-      end_time: formEnd,
-      slot_duration: formDuration,
+    const res = await fetch('/api/available-slots', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dayOfWeek: formDay,
+        startTime: formStart,
+        endTime: formEnd,
+        slotDuration: formDuration,
+      }),
     })
 
-    if (!error) {
+    if (res.ok) {
       setShowForm(false)
       await loadSlots()
     }
@@ -77,12 +58,16 @@ export default function HorariosPage() {
   }
 
   async function handleToggle(id: string, active: boolean) {
-    await supabase.from('available_slots').update({ active: !active }).eq('id', id)
+    await fetch('/api/available-slots', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, active: !active }),
+    })
     await loadSlots()
   }
 
   async function handleDelete(id: string) {
-    await supabase.from('available_slots').delete().eq('id', id)
+    await fetch(`/api/available-slots?id=${id}`, { method: 'DELETE' })
     await loadSlots()
   }
 
@@ -98,8 +83,8 @@ export default function HorariosPage() {
   // Agrupar por dia
   const slotsByDay: Record<number, Slot[]> = {}
   slots.forEach((s) => {
-    if (!slotsByDay[s.day_of_week]) slotsByDay[s.day_of_week] = []
-    slotsByDay[s.day_of_week].push(s)
+    if (!slotsByDay[s.dayOfWeek]) slotsByDay[s.dayOfWeek] = []
+    slotsByDay[s.dayOfWeek].push(s)
   })
 
   return (
@@ -207,10 +192,10 @@ export default function HorariosPage() {
                       <div className="flex items-center gap-3">
                         <div className={`w-2 h-2 rounded-full ${slot.active ? 'bg-green-400' : 'bg-gray-300'}`} />
                         <span className="text-sm font-medium text-gray-900">
-                          {slot.start_time.slice(0, 5)} — {slot.end_time.slice(0, 5)}
+                          {slot.startTime.slice(0, 5)} - {slot.endTime.slice(0, 5)}
                         </span>
                         <span className="text-xs text-gray-400">
-                          ({slot.slot_duration} min por consulta)
+                          ({slot.slotDuration} min por consulta)
                         </span>
                       </div>
                       <div className="flex items-center gap-2">

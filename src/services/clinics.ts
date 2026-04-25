@@ -1,17 +1,18 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { prisma } from '@/lib/prisma'
+import { auth } from '@/lib/auth'
+import { getSessionData } from '@/lib/auth-utils'
 
 export async function getClinic() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
+  const session = await auth()
+  if (!session?.user) return null
 
-  const { data } = await supabase
-    .from('clinics')
-    .select('*')
-    .eq('user_id', user.id)
-    .single()
+  const { userId } = getSessionData(session)
 
-  return data
+  const clinic = await prisma.clinic.findFirst({
+    where: { userId },
+  })
+
+  return clinic
 }

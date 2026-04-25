@@ -1,95 +1,85 @@
-import { createClient } from '@/lib/supabase/server'
+import { auth } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+  const session = await auth()
+  if (!session?.user) return NextResponse.json({ error: 'Nao autorizado' }, { status: 401 })
+  const userId = session.user.id
 
   const body = await request.json()
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, name, phone, clinic_id')
-    .eq('user_id', user.id)
-    .single()
+  const profile = await prisma.profile.findUnique({
+    where: { userId },
+    select: { id: true, name: true, phone: true, clinicId: true },
+  })
 
   if (!profile) return NextResponse.json({ error: 'Perfil nao encontrado' }, { status: 400 })
 
-  // Se o perfil nao tem clinic_id, tentar recuperar do user_metadata
-  let clinicId = profile.clinic_id
+  // Se o perfil nao tem clinicId, tentar recuperar do user metadata (invite code)
+  let clinicId = profile.clinicId
   if (!clinicId) {
-    const inviteCode = user.user_metadata?.invite_code
-    if (inviteCode) {
-      const { data: clinic } = await supabase
-        .from('clinics')
-        .select('id')
-        .eq('invite_code', inviteCode.toUpperCase().trim())
-        .single()
-
-      if (clinic) {
-        clinicId = clinic.id
-        // Atualizar o perfil com o clinic_id
-        await supabase
-          .from('profiles')
-          .update({ clinic_id: clinic.id, onboarding_complete: true })
-          .eq('id', profile.id)
-      }
-    }
+    // Sem clinic vinculada
+    return NextResponse.json({ error: 'Nao foi possivel encontrar sua clinica. Entre em contato com o veterinario.' }, { status: 400 })
   }
 
-  if (!clinicId) return NextResponse.json({ error: 'Nao foi possivel encontrar sua clinica. Entre em contato com o veterinario.' }, { status: 400 })
-
   // Buscar client vinculado ao perfil
-  let { data: client } = await supabase
-    .from('clients')
-    .select('id')
-    .eq('profile_id', profile.id)
-    .single()
+  let client = await prisma.client.findFirst({
+    where: { profileId: profile.id },
+    select: { id: true },
+  })
 
   // Se nao existe, criar o registro de client
   if (!client) {
-    const { data: clinic } = await supabase
-      .from('clinics')
-      .select('user_id')
-      .eq('id', clinicId)
-      .single()
+    const clinic = await prisma.clinic.findUnique({
+      where: { id: clinicId },
+      select: { userId: true },
+    })
 
     if (clinic) {
-      const { data: newClient, error: clientError } = await supabase.from('clients').insert({
-        user_id: clinic.user_id,
-        profile_id: profile.id,
-        name: profile.name,
-        phone: profile.phone,
-        email: user.email,
-      }).select().single()
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true },
+      })
 
-      if (clientError) return NextResponse.json({ error: 'Erro ao criar registro: ' + clientError.message }, { status: 400 })
-      client = newClient
+      client = await prisma.client.create({
+        data: {
+          userId: clinic.userId,
+          profileId: profile.id,
+          name: profile.name || '',
+          phone: profile.phone,
+          email: user?.email,
+          clinicId,
+        },
+        select: { id: true },
+      })
     }
   }
 
   if (!client) return NextResponse.json({ error: 'Falha ao vincular perfil' }, { status: 400 })
 
-  const { data: pet, error } = await supabase.from('pets').insert({
-    client_id: client.id,
-    name: body.name,
-    species: body.species,
-    breed: body.breed || null,
-    birth_date: body.birth_date || null,
-    sex: body.sex || null,
-    color: body.color || null,
-  }).select().single()
+  try {
+    const pet = await prisma.pet.create({
+      data: {
+        clientId: client.id,
+        name: body.name,
+        species: body.species,
+        breed: body.breed || null,
+        birthDate: body.birth_date ? new Date(body.birth_date) : null,
+        sex: body.sex || null,
+        color: body.color || null,
+      },
+    })
 
-  if (error) return NextResponse.json({ error: 'Falha ao cadastrar pet: ' + error.message }, { status: 400 })
-
-  return NextResponse.json({ pet })
+    return NextResponse.json({ pet })
+  } catch (error: any) {
+    return NextResponse.json({ error: 'Falha ao cadastrar pet: ' + error.message }, { status: 400 })
+  }
 }
 
 export async function PATCH(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+  const session = await auth()
+  if (!session?.user) return NextResponse.json({ error: 'Nao autorizado' }, { status: 401 })
 
   const body = await request.json()
   const { id, name, species, breed } = body
@@ -100,35 +90,37 @@ export async function PATCH(request: Request) {
   if (name) update.name = name
   if (species) update.species = species
   if (breed !== undefined) update.breed = breed || null
-  if (body.birth_date !== undefined) update.birth_date = body.birth_date || null
+  if (body.birth_date !== undefined) update.birthDate = body.birth_date ? new Date(body.birth_date) : null
   if (body.sex !== undefined) update.sex = body.sex || null
   if (body.color !== undefined) update.color = body.color || null
 
-  const { error } = await supabase
-    .from('pets')
-    .update(update)
-    .eq('id', id)
+  try {
+    await prisma.pet.update({
+      where: { id },
+      data: update,
+    })
 
-  if (error) return NextResponse.json({ error: 'Erro ao atualizar: ' + error.message }, { status: 400 })
-
-  return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true })
+  } catch (error: any) {
+    return NextResponse.json({ error: 'Erro ao atualizar: ' + error.message }, { status: 400 })
+  }
 }
 
 export async function DELETE(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+  const session = await auth()
+  if (!session?.user) return NextResponse.json({ error: 'Nao autorizado' }, { status: 401 })
 
   const { id } = await request.json()
 
   if (!id) return NextResponse.json({ error: 'ID do pet obrigatorio' }, { status: 400 })
 
-  const { error } = await supabase
-    .from('pets')
-    .delete()
-    .eq('id', id)
+  try {
+    await prisma.pet.delete({
+      where: { id },
+    })
 
-  if (error) return NextResponse.json({ error: 'Erro ao excluir: ' + error.message }, { status: 400 })
-
-  return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true })
+  } catch (error: any) {
+    return NextResponse.json({ error: 'Erro ao excluir: ' + error.message }, { status: 400 })
+  }
 }

@@ -1,32 +1,23 @@
 'use client'
 
-import { createClient } from '@/lib/supabase/client'
 import { useEffect, useState } from 'react'
 
 export function PortalWhatsApp() {
   const [phone, setPhone] = useState<string | null>(null)
   const [clinicName, setClinicName] = useState('')
-  const supabase = createClient()
 
   useEffect(() => {
     async function load() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('clinic_id, clinics(phone, name)')
-        .eq('user_id', user.id)
-        .single()
-
-      const clinic = (profile as any)?.clinics
-      if (clinic?.phone) {
-        setPhone(clinic.phone)
-        setClinicName(clinic.name || '')
+      const res = await fetch('/api/portal/clinic-info')
+      if (!res.ok) return
+      const data = await res.json()
+      if (data.phone) {
+        setPhone(data.phone)
+        setClinicName(data.name || '')
       }
     }
     load()
-  }, [supabase])
+  }, [])
 
   if (!phone) return null
 

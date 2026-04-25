@@ -1,42 +1,50 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { prisma } from '@/lib/prisma'
+import { requireAuth, getSessionData } from '@/lib/auth-utils'
 import { redirect } from 'next/navigation'
 
 export async function getClients() {
-  const supabase = await createClient()
-  const { data } = await supabase
-    .from('clients')
-    .select('*')
-    .order('created_at', { ascending: false })
-  return data ?? []
+  const session = await requireAuth()
+  const { clinicId } = getSessionData(session)
+
+  if (!clinicId) return []
+
+  const clients = await prisma.client.findMany({
+    where: { clinicId },
+    orderBy: { createdAt: 'desc' },
+  })
+
+  return clients
 }
 
 export async function getClient(id: string) {
-  const supabase = await createClient()
-  const { data } = await supabase
-    .from('clients')
-    .select('*, pets(*)')
-    .eq('id', id)
-    .single()
-  return data
+  const session = await requireAuth()
+  const { clinicId } = getSessionData(session)
+
+  const client = await prisma.client.findFirst({
+    where: { id, clinicId: clinicId ?? undefined },
+    include: { pets: true },
+  })
+
+  return client
 }
 
 export async function createClientAction(formData: FormData) {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const session = await requireAuth()
+  const { userId, clinicId } = getSessionData(session)
 
-  const { error } = await supabase.from('clients').insert({
-    user_id: user.id,
-    name: formData.get('name') as string,
-    phone: formData.get('phone') as string,
-    email: formData.get('email') as string,
+  if (!clinicId) throw new Error('Clinica nao encontrada')
+
+  await prisma.client.create({
+    data: {
+      userId,
+      name: formData.get('name') as string,
+      phone: formData.get('phone') as string,
+      email: formData.get('email') as string,
+      clinicId,
+    },
   })
-
-  if (error) throw new Error('Falha ao cadastrar cliente')
 
   redirect('/dashboard/clients')
 }

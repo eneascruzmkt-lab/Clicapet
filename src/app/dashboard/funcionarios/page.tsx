@@ -1,6 +1,5 @@
 'use client'
 
-import { createClient } from '@/lib/supabase/client'
 import { useEffect, useState } from 'react'
 import { Header } from '@/components/header'
 
@@ -31,54 +30,40 @@ export default function FuncionariosPage() {
   const [staff, setStaff] = useState<Staff[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [clinicId, setClinicId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [formName, setFormName] = useState('')
   const [formRole, setFormRole] = useState('vet')
   const [formPhone, setFormPhone] = useState('')
   const [formEmail, setFormEmail] = useState('')
-  const supabase = createClient()
 
   useEffect(() => {
     loadStaff()
   }, [])
 
   async function loadStaff() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: clinic } = await supabase
-      .from('clinics')
-      .select('id')
-      .eq('user_id', user.id)
-      .single()
-
-    if (!clinic) return
-    setClinicId(clinic.id)
-
-    const { data } = await supabase
-      .from('staff')
-      .select('*')
-      .eq('clinic_id', clinic.id)
-      .order('name')
-
-    setStaff(data ?? [])
+    const res = await fetch('/api/staff')
+    if (!res.ok) return
+    const data = await res.json()
+    setStaff(data)
     setLoading(false)
   }
 
   async function handleAdd() {
-    if (!clinicId || !formName.trim()) return
+    if (!formName.trim()) return
     setSaving(true)
 
-    const { error } = await supabase.from('staff').insert({
-      clinic_id: clinicId,
-      name: formName.trim(),
-      role: formRole,
-      phone: formPhone.trim() || null,
-      email: formEmail.trim() || null,
+    const res = await fetch('/api/staff', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: formName.trim(),
+        role: formRole,
+        phone: formPhone.trim() || null,
+        email: formEmail.trim() || null,
+      }),
     })
 
-    if (!error) {
+    if (res.ok) {
       setShowForm(false)
       setFormName('')
       setFormRole('vet')
@@ -90,12 +75,16 @@ export default function FuncionariosPage() {
   }
 
   async function handleToggle(id: string, active: boolean) {
-    await supabase.from('staff').update({ active: !active }).eq('id', id)
+    await fetch('/api/staff', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, active: !active }),
+    })
     await loadStaff()
   }
 
   async function handleDelete(id: string) {
-    await supabase.from('staff').delete().eq('id', id)
+    await fetch(`/api/staff?id=${id}`, { method: 'DELETE' })
     await loadStaff()
   }
 

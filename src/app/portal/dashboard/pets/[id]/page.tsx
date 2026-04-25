@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 
-import { createClient } from '@/lib/supabase/server'
+import { auth } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
 import Link from 'next/link'
 import Image from 'next/image'
 import { notFound } from 'next/navigation'
@@ -25,7 +26,7 @@ function getSpeciesBadgeColor(species: string) {
   return 'bg-blue-500/20 text-blue-100'
 }
 
-function calcAge(birthDate: string | null): string | null {
+function calcAge(birthDate: Date | null): string | null {
   if (!birthDate) return null
   const birth = new Date(birthDate)
   const now = new Date()
@@ -40,43 +41,36 @@ function calcAge(birthDate: string | null): string | null {
 
 export default async function PetDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const supabase = await createClient()
+  const session = await auth()
+  if (!session?.user) return null
 
-  const { data: pet } = await supabase
-    .from('pets')
-    .select('*, vaccines(id, name, applied_at, next_due_date)')
-    .eq('id', id)
-    .single()
+  const pet = await prisma.pet.findUnique({
+    where: { id },
+    include: { vaccines: true },
+  })
 
   if (!pet) return notFound()
 
-  let records: any[] = []
-  const { data: medRecords } = await supabase
-    .from('medical_records')
-    .select('id, type, description, created_at')
-    .eq('pet_id', id)
-  records = medRecords ?? []
+  const records = await prisma.medicalRecord.findMany({
+    where: { petId: id },
+    select: { id: true, type: true, notes: true, createdAt: true },
+  })
 
-  const { data: prescriptions } = await supabase
-    .from('prescriptions')
-    .select('*')
-    .eq('pet_id', id)
-    .order('created_at', { ascending: false })
+  const prescriptions = await prisma.prescription.findMany({
+    where: { petId: id },
+    orderBy: { createdAt: 'desc' },
+  })
 
-  const { data: exams } = await supabase
-    .from('exam_files')
-    .select('*')
-    .eq('pet_id', id)
-    .order('created_at', { ascending: false })
+  const exams = await prisma.examFile.findMany({
+    where: { petId: id },
+    orderBy: { createdAt: 'desc' },
+  })
 
-  let appointments: any[] = []
-  const { data: appts } = await supabase
-    .from('appointments')
-    .select('*')
-    .eq('pet_id', id)
-    .order('scheduled_at', { ascending: false })
-    .limit(10)
-  appointments = appts ?? []
+  const appointments = await prisma.appointment.findMany({
+    where: { petId: id },
+    orderBy: { scheduledAt: 'desc' },
+    take: 10,
+  })
 
   const vaccines = pet.vaccines ?? []
 
@@ -85,14 +79,14 @@ export default async function PetDetailPage({ params }: { params: Promise<{ id: 
       {/* Header Banner */}
       <div className="relative mb-6 rounded-2xl overflow-hidden">
         <Image
-          src={getPetBannerImage(pet.species)}
+          src={getPetBannerImage(pet.species ?? '')}
           alt={pet.name}
           width={800}
           height={250}
           className="w-full h-40 object-cover"
           priority
         />
-        <div className={`absolute inset-0 bg-gradient-to-r ${getSpeciesGradient(pet.species)}`} />
+        <div className={`absolute inset-0 bg-gradient-to-r ${getSpeciesGradient(pet.species ?? '')}`} />
         <div className="absolute inset-0 flex items-center justify-between px-8">
           <div className="flex items-center gap-4">
             <Link href="/portal/dashboard/meu-pet" className="text-white/70 hover:text-white transition-colors">
@@ -103,7 +97,7 @@ export default async function PetDetailPage({ params }: { params: Promise<{ id: 
             <div>
               <h1 className="text-2xl font-bold text-white">{pet.name}</h1>
               <div className="flex items-center gap-2 mt-1">
-                <span className={`px-2.5 py-0.5 text-xs font-medium rounded-lg ${getSpeciesBadgeColor(pet.species)}`}>
+                <span className={`px-2.5 py-0.5 text-xs font-medium rounded-lg ${getSpeciesBadgeColor(pet.species ?? '')}`}>
                   {pet.species}
                 </span>
                 {pet.breed && (
@@ -114,8 +108,8 @@ export default async function PetDetailPage({ params }: { params: Promise<{ id: 
                     {pet.sex === 'M' ? '\u2642' : '\u2640'}
                   </span>
                 )}
-                {calcAge(pet.birth_date) && (
-                  <span className="text-white/70 text-sm">{calcAge(pet.birth_date)}</span>
+                {calcAge(pet.birthDate) && (
+                  <span className="text-white/70 text-sm">{calcAge(pet.birthDate)}</span>
                 )}
                 {pet.color && (
                   <span className="text-white/70 text-sm">{pet.color}</span>
@@ -123,7 +117,7 @@ export default async function PetDetailPage({ params }: { params: Promise<{ id: 
               </div>
             </div>
           </div>
-          <PetActions pet={{ id: pet.id, name: pet.name, species: pet.species, breed: pet.breed, photo_url: pet.photo_url ?? null, birth_date: pet.birth_date ?? null, sex: pet.sex ?? null, color: pet.color ?? null }} />
+          <PetActions pet={{ id: pet.id, name: pet.name, species: pet.species ?? '', breed: pet.breed ?? '', photo_url: pet.photoUrl ?? null, birth_date: pet.birthDate ? pet.birthDate.toISOString().split('T')[0] : null, sex: pet.sex ?? null, color: pet.color ?? null }} />
         </div>
       </div>
 
@@ -145,21 +139,21 @@ export default async function PetDetailPage({ params }: { params: Promise<{ id: 
             {vaccines.length > 0 ? (
               <div className="divide-y divide-gray-50">
                 {vaccines.map((v: any) => {
-                  const isOverdue = v.next_due_date && new Date(v.next_due_date) < new Date()
+                  const isOverdue = v.nextDueDate && new Date(v.nextDueDate) < new Date()
                   return (
-                    <div key={v.id} className={`p-4 flex items-center justify-between border-l-4 ${isOverdue ? 'border-l-red-400 bg-red-50/30' : v.next_due_date ? 'border-l-teal-400' : 'border-l-gray-200'}`}>
+                    <div key={v.id} className={`p-4 flex items-center justify-between border-l-4 ${isOverdue ? 'border-l-red-400 bg-red-50/30' : v.nextDueDate ? 'border-l-teal-400' : 'border-l-gray-200'}`}>
                       <div className="flex items-center gap-3">
-                        <div className={`w-2 h-2 rounded-full ${isOverdue ? 'bg-red-400' : v.next_due_date ? 'bg-teal-400' : 'bg-gray-300'}`} />
+                        <div className={`w-2 h-2 rounded-full ${isOverdue ? 'bg-red-400' : v.nextDueDate ? 'bg-teal-400' : 'bg-gray-300'}`} />
                         <div>
                           <p className="text-sm font-medium text-gray-900">{v.name}</p>
                           <p className="text-xs text-gray-400">
-                            Aplicada em {new Date(v.applied_at).toLocaleDateString('pt-BR')}
+                            Aplicada em {new Date(v.appliedAt).toLocaleDateString('pt-BR')}
                           </p>
                         </div>
                       </div>
-                      {v.next_due_date && (
+                      {v.nextDueDate && (
                         <span className={`text-xs font-medium px-2.5 py-1 rounded-lg ${isOverdue ? 'bg-red-50 text-red-600' : 'bg-teal-50 text-teal-600'}`}>
-                          {isOverdue ? 'Atrasada' : `Prox: ${new Date(v.next_due_date).toLocaleDateString('pt-BR')}`}
+                          {isOverdue ? 'Atrasada' : `Prox: ${new Date(v.nextDueDate).toLocaleDateString('pt-BR')}`}
                         </span>
                       )}
                     </div>
@@ -184,28 +178,23 @@ export default async function PetDetailPage({ params }: { params: Promise<{ id: 
                 </div>
                 <h2 className="font-semibold text-gray-900">Receitas</h2>
               </div>
-              <span className="text-xs text-gray-400">{(prescriptions ?? []).length} receita{(prescriptions ?? []).length !== 1 ? 's' : ''}</span>
+              <span className="text-xs text-gray-400">{prescriptions.length} receita{prescriptions.length !== 1 ? 's' : ''}</span>
             </div>
-            {prescriptions && prescriptions.length > 0 ? (
+            {prescriptions.length > 0 ? (
               <div className="divide-y divide-gray-50">
                 {prescriptions.map((p: any) => (
                   <div key={p.id} className="p-4 border-l-4 border-l-purple-400">
                     <div className="flex items-center justify-between mb-1">
-                      <p className="text-sm font-bold text-gray-900">{p.medication}</p>
+                      <p className="text-sm font-bold text-gray-900">Receita</p>
                       <span className="text-xs text-gray-400">
-                        {new Date(p.created_at).toLocaleDateString('pt-BR')}
+                        {new Date(p.createdAt).toLocaleDateString('pt-BR')}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-600">
-                      {p.dosage} &middot; {p.frequency}
-                    </p>
-                    {p.duration && (
+                    <p className="text-sm text-gray-600">{p.content}</p>
+                    {p.vetName && (
                       <p className="text-xs text-purple-600 mt-1">
-                        Duracao: {p.duration}
+                        Vet: {p.vetName}
                       </p>
-                    )}
-                    {p.instructions && (
-                      <p className="text-xs text-gray-400 mt-1">{p.instructions}</p>
                     )}
                   </div>
                 ))}
@@ -228,20 +217,20 @@ export default async function PetDetailPage({ params }: { params: Promise<{ id: 
                 </div>
                 <h2 className="font-semibold text-gray-900">Exames</h2>
               </div>
-              <span className="text-xs text-gray-400">{(exams ?? []).length} exame{(exams ?? []).length !== 1 ? 's' : ''}</span>
+              <span className="text-xs text-gray-400">{exams.length} exame{exams.length !== 1 ? 's' : ''}</span>
             </div>
-            {exams && exams.length > 0 ? (
+            {exams.length > 0 ? (
               <div className="divide-y divide-gray-50">
                 {exams.map((exam: any) => (
                   <div key={exam.id} className="p-4 border-l-4 border-l-indigo-400 flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-gray-900">{exam.name}</p>
+                      <p className="text-sm font-medium text-gray-900">{exam.fileName}</p>
                       <p className="text-xs text-gray-400">
-                        {new Date(exam.created_at).toLocaleDateString('pt-BR')}
+                        {new Date(exam.createdAt).toLocaleDateString('pt-BR')}
                       </p>
                     </div>
                     <a
-                      href={exam.file_url}
+                      href={exam.fileUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-medium rounded-lg hover:bg-indigo-100 transition-colors"
@@ -299,11 +288,11 @@ export default async function PetDetailPage({ params }: { params: Promise<{ id: 
                           {typeLabels[r.type] ?? r.type}
                         </span>
                         <span className="text-xs text-gray-400">
-                          {new Date(r.created_at).toLocaleDateString('pt-BR')}
+                          {new Date(r.createdAt).toLocaleDateString('pt-BR')}
                         </span>
                       </div>
-                      {r.description && (
-                        <p className="text-sm text-gray-600 mt-1">{r.description}</p>
+                      {r.notes && (
+                        <p className="text-sm text-gray-600 mt-1">{r.notes}</p>
                       )}
                     </div>
                   )
@@ -360,8 +349,8 @@ export default async function PetDetailPage({ params }: { params: Promise<{ id: 
                         </span>
                       </div>
                       <p className="text-xs text-gray-400">
-                        {new Date(a.scheduled_at).toLocaleDateString('pt-BR')} as{' '}
-                        {new Date(a.scheduled_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                        {new Date(a.scheduledAt).toLocaleDateString('pt-BR')} as{' '}
+                        {new Date(a.scheduledAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                       </p>
                       {a.notes && <p className="text-xs text-gray-500 mt-1">{a.notes}</p>}
                       {(a.status === 'pending' || a.status === 'confirmed') && (

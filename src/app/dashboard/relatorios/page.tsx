@@ -1,6 +1,5 @@
 'use client'
 
-import { createClient } from '@/lib/supabase/client'
 import { useEffect, useState } from 'react'
 import { Header } from '@/components/header'
 
@@ -10,16 +9,6 @@ type RevenueData = { month: string; total: number }
 
 function fmtMoney(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-}
-
-function getLastSixMonths(): string[] {
-  const months: string[] = []
-  const now = new Date()
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
-  }
-  return months
 }
 
 function monthLabel(ym: string): string {
@@ -35,82 +24,21 @@ export default function RelatoriosPage() {
   const [totalPets, setTotalPets] = useState(0)
   const [totalClients, setTotalClients] = useState(0)
   const [revenueByMonth, setRevenueByMonth] = useState<RevenueData[]>([])
-  const supabase = createClient()
 
   useEffect(() => {
     loadData()
   }, [])
 
   async function loadData() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+    const res = await fetch('/api/relatorios')
+    if (!res.ok) return
+    const data = await res.json()
 
-    const { data: clinic } = await supabase
-      .from('clinics')
-      .select('id')
-      .eq('user_id', user.id)
-      .single()
-
-    if (!clinic) return
-
-    const months = getLastSixMonths()
-    const startDate = `${months[0]}-01`
-
-    // Appointments
-    const { data: appointments } = await supabase
-      .from('appointments')
-      .select('date, type')
-      .eq('clinic_id', clinic.id)
-      .gte('date', startDate)
-
-    // Count by month
-    const byMonth: Record<string, number> = {}
-    const byType: Record<string, number> = {}
-    months.forEach((m) => (byMonth[m] = 0))
-
-    ;(appointments ?? []).forEach((a: any) => {
-      const ym = a.date?.slice(0, 7)
-      if (ym && byMonth[ym] !== undefined) byMonth[ym]++
-      const t = a.type || 'consultation'
-      byType[t] = (byType[t] || 0) + 1
-    })
-
-    setAppointmentsByMonth(months.map((m) => ({ month: m, count: byMonth[m] })))
-    setAppointmentsByType(Object.entries(byType).map(([type, count]) => ({ type, count })))
-
-    // Pets count
-    const { count: petsCount } = await supabase
-      .from('pets')
-      .select('*', { count: 'exact', head: true })
-      .eq('clinic_id', clinic.id)
-
-    setTotalPets(petsCount ?? 0)
-
-    // Clients count
-    const { count: clientsCount } = await supabase
-      .from('clients')
-      .select('*', { count: 'exact', head: true })
-      .eq('clinic_id', clinic.id)
-
-    setTotalClients(clientsCount ?? 0)
-
-    // Transactions by month
-    const { data: transactions } = await supabase
-      .from('transactions')
-      .select('date, amount, type')
-      .eq('clinic_id', clinic.id)
-      .eq('type', 'revenue')
-      .gte('date', startDate)
-
-    const revByMonth: Record<string, number> = {}
-    months.forEach((m) => (revByMonth[m] = 0))
-
-    ;(transactions ?? []).forEach((t: any) => {
-      const ym = t.date?.slice(0, 7)
-      if (ym && revByMonth[ym] !== undefined) revByMonth[ym] += parseFloat(t.amount) || 0
-    })
-
-    setRevenueByMonth(months.map((m) => ({ month: m, total: revByMonth[m] })))
+    setAppointmentsByMonth(data.appointmentsByMonth)
+    setAppointmentsByType(data.appointmentsByType)
+    setTotalPets(data.totalPets)
+    setTotalClients(data.totalClients)
+    setRevenueByMonth(data.revenueByMonth)
     setLoading(false)
   }
 

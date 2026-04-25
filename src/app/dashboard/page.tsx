@@ -1,37 +1,44 @@
 export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/server'
-import { InviteCodeCard } from '@/components/invite-code-card'
+import { prisma } from '@/lib/prisma'
 import { getClinic } from '@/services/clinics'
 import { getMonthlyStats } from '@/services/transactions'
+import { auth } from '@/lib/auth'
+import { getSessionData } from '@/lib/auth-utils'
 
 export default async function DashboardPage() {
-  const supabase = await createClient()
+  const session = await auth()
+  const { clinicId } = getSessionData(session)
   const [clinic, stats] = await Promise.all([getClinic(), getMonthlyStats()])
 
-  const { count: petsCount } = await supabase
-    .from('pets')
-    .select('*', { count: 'exact', head: true })
+  const petsCount = clinicId ? await prisma.pet.count({
+    where: { client: { clinicId } },
+  }) : 0
 
-  const { count: clientsCount } = await supabase
-    .from('clients')
-    .select('*', { count: 'exact', head: true })
+  const clientsCount = clinicId ? await prisma.client.count({
+    where: { clinicId },
+  }) : 0
 
-  const { data: upcomingVaccines } = await supabase
-    .from('vaccines')
-    .select('id, name, next_due_date, pets(name)')
-    .not('next_due_date', 'is', null)
-    .gte('next_due_date', new Date().toISOString().split('T')[0])
-    .order('next_due_date')
-    .limit(5)
+  const upcomingVaccines = clinicId ? await prisma.vaccine.findMany({
+    where: {
+      pet: { client: { clinicId } },
+      nextDueDate: { not: null, gte: new Date() },
+    },
+    include: { pet: { select: { name: true } } },
+    take: 5,
+    orderBy: { nextDueDate: 'asc' },
+  }) : []
 
-  const { data: pendingAppointments } = await supabase
-    .from('appointments')
-    .select('id, scheduled_at, type, status, pets(name)')
-    .in('status', ['pending', 'confirmed'])
-    .order('scheduled_at', { ascending: true })
-    .limit(5)
+  const pendingAppointments = clinicId ? await prisma.appointment.findMany({
+    where: {
+      clinicId,
+      status: { in: ['pending', 'confirmed'] },
+    },
+    include: { pet: { select: { name: true } } },
+    take: 5,
+    orderBy: { scheduledAt: 'asc' },
+  }) : []
 
   const clinicName = clinic?.name ?? 'Clinica'
 
@@ -91,7 +98,7 @@ export default async function DashboardPage() {
             <p className="text-sm text-gray-500 mb-3">Compartilhe com seus tutores para que se cadastrem no portal.</p>
             <div className="flex items-center gap-3">
               <code className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-lg font-mono font-bold text-teal-600 tracking-wider">
-                {clinic.invite_code}
+                {clinic.inviteCode}
               </code>
               <p className="text-xs text-gray-400">Link: clicapet.vercel.app/portal</p>
             </div>
@@ -122,13 +129,13 @@ export default async function DashboardPage() {
                       )}
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-gray-900">{a.pets?.name}</p>
+                      <p className="text-sm font-medium text-gray-900">{a.pet?.name}</p>
                       <p className="text-xs text-gray-400">{a.type === 'vaccine' ? 'Vacina' : 'Consulta'}</p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-medium text-gray-700">{new Date(a.scheduled_at).toLocaleDateString('pt-BR')}</p>
-                    <p className="text-xs text-gray-400">{new Date(a.scheduled_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                    <p className="text-sm font-medium text-gray-700">{new Date(a.scheduledAt).toLocaleDateString('pt-BR')}</p>
+                    <p className="text-xs text-gray-400">{new Date(a.scheduledAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
                   </div>
                 </div>
               ))}
@@ -153,10 +160,10 @@ export default async function DashboardPage() {
               <div key={v.id} className="p-4 flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-900">{v.name}</p>
-                  <p className="text-xs text-gray-400">{v.pets?.name}</p>
+                  <p className="text-xs text-gray-400">{v.pet?.name}</p>
                 </div>
                 <span className="text-xs font-medium px-2.5 py-1 bg-teal-50 text-teal-600 rounded-lg">
-                  {new Date(v.next_due_date).toLocaleDateString('pt-BR')}
+                  {new Date(v.nextDueDate).toLocaleDateString('pt-BR')}
                 </span>
               </div>
             ))}

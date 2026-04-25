@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { usePathname } from 'next/navigation'
+import { signOut } from 'next-auth/react'
 import { useState } from 'react'
 
 const links = [
@@ -30,14 +30,10 @@ const links = [
 
 export function PortalSidebar() {
   const pathname = usePathname()
-  const router = useRouter()
-  const supabase = createClient()
   const [open, setOpen] = useState(false)
 
-  async function handleLogout() {
-    await supabase.auth.signOut()
-    router.push('/portal')
-    router.refresh()
+  function handleLogout() {
+    signOut({ callbackUrl: '/portal' })
   }
 
   return (

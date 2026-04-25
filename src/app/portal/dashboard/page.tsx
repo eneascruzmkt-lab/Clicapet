@@ -1,72 +1,71 @@
 export const dynamic = 'force-dynamic'
 
-import { createClient } from '@/lib/supabase/server'
+import { auth } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
+import { getSessionData } from '@/lib/auth-utils'
 import Link from 'next/link'
 import Image from 'next/image'
 import { CancelAppointmentButton } from '@/components/cancel-appointment'
 
 export default async function PortalDashboardPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const session = await auth()
+  if (!session?.user) return null
 
-  if (!user) return null
+  const { userId } = getSessionData(session)
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, name, phone, clinic_id, clinics(name)')
-    .eq('user_id', user.id)
-    .single()
+  const profile = await prisma.profile.findUnique({
+    where: { userId },
+    include: { clinic: true },
+  })
 
   if (!profile) return null
 
-  const { data: clients } = await supabase
-    .from('clients')
-    .select('id')
-    .eq('profile_id', profile.id)
+  const clients = await prisma.client.findMany({
+    where: { profileId: profile.id },
+    select: { id: true },
+  })
 
-  const clientIds = clients?.map((c) => c.id) ?? []
+  const clientIds = clients.map((c) => c.id)
 
-  const { data: pets } = clientIds.length
-    ? await supabase
-        .from('pets')
-        .select('*, vaccines(id, name, applied_at, next_due_date)')
-        .in('client_id', clientIds)
-    : { data: [] }
+  const pets = clientIds.length
+    ? await prisma.pet.findMany({
+        where: { clientId: { in: clientIds } },
+        include: { vaccines: true },
+      })
+    : []
 
-  const petIds = pets?.map((p) => p.id) ?? []
+  const petIds = pets.map((p) => p.id)
 
-  let appointments: any[] = []
-  if (petIds.length) {
-    const { data } = await supabase
-      .from('appointments')
-      .select('*, pets(name)')
-      .in('pet_id', petIds)
-      .in('status', ['pending', 'confirmed'])
-      .order('scheduled_at', { ascending: true })
-      .limit(5)
-    appointments = data ?? []
-  }
+  const appointments = petIds.length
+    ? await prisma.appointment.findMany({
+        where: {
+          petId: { in: petIds },
+          status: { in: ['pending', 'confirmed'] },
+        },
+        include: { pet: true },
+        orderBy: { scheduledAt: 'asc' },
+        take: 5,
+      })
+    : []
 
-  let medicalRecords: any[] = []
-  if (petIds.length) {
-    const { data } = await supabase
-      .from('medical_records')
-      .select('*, pets(name)')
-      .in('pet_id', petIds)
-      .order('created_at', { ascending: false })
-      .limit(5)
-    medicalRecords = data ?? []
-  }
+  const medicalRecords = petIds.length
+    ? await prisma.medicalRecord.findMany({
+        where: { petId: { in: petIds } },
+        include: { pet: true },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      })
+    : []
 
   // Vaccine alerts
   const today = new Date()
-  const upcomingVaccines = (pets ?? []).flatMap((pet: any) =>
+  const upcomingVaccines = pets.flatMap((pet: any) =>
     (pet.vaccines ?? [])
-      .filter((v: any) => v.next_due_date && new Date(v.next_due_date) <= new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000))
+      .filter((v: any) => v.nextDueDate && new Date(v.nextDueDate) <= new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000))
       .map((v: any) => ({ ...v, petName: pet.name, petId: pet.id }))
-  ).sort((a: any, b: any) => new Date(a.next_due_date).getTime() - new Date(b.next_due_date).getTime())
+  ).sort((a: any, b: any) => new Date(a.nextDueDate).getTime() - new Date(b.nextDueDate).getTime())
 
-  const clinicName = (profile as any).clinics?.name
+  const clinicName = profile.clinic?.name
 
   function getPetImage(species: string) {
     if (species === 'Cao') return 'https://images.unsplash.com/photo-1587300003388-59208cc962cb?w=100&h=100&fit=crop&q=80'
@@ -133,12 +132,12 @@ export default async function PortalDashboardPage() {
           </div>
           <div className="space-y-2">
             {upcomingVaccines.map((v: any) => {
-              const dueDate = new Date(v.next_due_date)
+              const dueDate = new Date(v.nextDueDate)
               const isOverdue = dueDate < today
               return (
                 <div key={v.id} className="flex items-center justify-between text-sm">
                   <span className="text-white/90">
-                    <span className="font-medium text-white">{v.petName}</span> — {v.name}
+                    <span className="font-medium text-white">{v.petName}</span> - {v.name}
                   </span>
                   <span className={`font-semibold ${isOverdue ? 'text-yellow-200' : 'text-white'}`}>
                     {isOverdue ? 'Atrasada' : dueDate.toLocaleDateString('pt-BR')}
@@ -152,9 +151,9 @@ export default async function PortalDashboardPage() {
 
       {/* Stats cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <StatCard label="Pets" value={pets?.length ?? 0} color="amber" />
+        <StatCard label="Pets" value={pets.length} color="amber" />
         <StatCard label="Agendamentos" value={appointments.length} color="blue" />
-        <StatCard label="Vacinas aplicadas" value={(pets ?? []).reduce((acc: number, p: any) => acc + (p.vaccines?.length ?? 0), 0)} color="teal" />
+        <StatCard label="Vacinas aplicadas" value={pets.reduce((acc: number, p: any) => acc + (p.vaccines?.length ?? 0), 0)} color="teal" />
         <StatCard label="Consultas" value={medicalRecords.length} color="purple" />
       </div>
 
@@ -184,16 +183,16 @@ export default async function PortalDashboardPage() {
                   </div>
                   <div>
                     <p className="font-medium text-gray-900 text-sm">{a.type === 'vaccine' ? 'Vacina' : 'Consulta'}</p>
-                    <p className="text-xs text-gray-400">{a.pets?.name}</p>
+                    <p className="text-xs text-gray-400">{a.pet?.name}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="text-right">
                     <p className="text-sm font-medium text-gray-700">
-                      {new Date(a.scheduled_at).toLocaleDateString('pt-BR')}
+                      {new Date(a.scheduledAt).toLocaleDateString('pt-BR')}
                     </p>
                     <p className="text-xs text-gray-400">
-                      {new Date(a.scheduled_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(a.scheduledAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                     </p>
                   </div>
                   <CancelAppointmentButton id={a.id} />

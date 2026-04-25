@@ -1,8 +1,8 @@
 'use client'
 
-import { createClient } from '@/lib/supabase/client'
+import { signIn } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useState, useEffect, Suspense } from 'react'
+import { useState, Suspense } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { PhoneInput } from '@/components/phone-input'
@@ -20,24 +20,9 @@ function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isSignUp, setIsSignUp] = useState(searchParams.get('cadastro') === '1')
-  const [emailSent, setEmailSent] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [signingOut, setSigningOut] = useState(false)
   const router = useRouter()
-  const supabase = createClient()
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user?.user_metadata?.role === 'client') {
-        setSigningOut(true)
-        supabase.auth.signOut().then(() => {
-          setSigningOut(false)
-          router.refresh()
-        })
-      }
-    })
-  }, [supabase, router])
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -59,142 +44,62 @@ function LoginForm() {
         return
       }
 
-      const { data: existingLogin } = await supabase.auth.signInWithPassword({ email, password })
-      if (existingLogin?.user) {
-        const { data: existingProfile } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('user_id', existingLogin.user.id)
-          .single()
-        if (existingProfile?.role === 'client') {
-          await supabase.auth.signOut()
-          setError('Este email ja esta cadastrado como tutor. Use um email diferente.')
-          setLoading(false)
-          return
-        }
-      }
-      if (existingLogin?.session) {
-        await supabase.auth.signOut()
-      }
-
-      const { error, data: signUpData } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            role: 'clinic_owner',
-            clinic_name: clinicName,
-            clinic_phone: clinicPhone,
-            clinic_address: clinicAddress,
-          },
-        },
+      // Create account via signup API
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
       })
 
-      if (error) {
-        setError(error.message)
-        setLoading(false)
-        return
-      }
-
-      if (signUpData.session) {
-        try {
-          const fd = new FormData()
-          fd.set('clinic_name', clinicName)
-          fd.set('clinic_phone', clinicPhone)
-          fd.set('clinic_address', clinicAddress)
-          const { createClinicOwnerProfile } = await import('@/services/profiles')
-          await createClinicOwnerProfile(fd)
-          router.push('/dashboard')
-          router.refresh()
-          return
-        } catch {
-          router.push('/onboarding/clinic')
-          return
-        }
-      }
-
-      setEmailSent(true)
-      setLoading(false)
-    } else {
-      const { error, data } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) {
-        setError(error.message)
-        setLoading(false)
-        return
-      }
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role, onboarding_complete')
-        .eq('user_id', data.user.id)
-        .single()
-
-      if (!profile) {
-        const meta = data.user.user_metadata
-        if (meta?.role === 'clinic_owner' && meta?.clinic_name) {
-          try {
-            const formData = new FormData()
-            formData.set('clinic_name', meta.clinic_name)
-            formData.set('clinic_phone', meta.clinic_phone || '')
-            formData.set('clinic_address', meta.clinic_address || '')
-            const { createClinicOwnerProfile } = await import('@/services/profiles')
-            await createClinicOwnerProfile(formData)
-            router.push('/dashboard')
-            router.refresh()
-            return
-          } catch {
-            // Falhou — vai pro onboarding
-          }
-        }
-        router.push('/onboarding/clinic')
-      } else if (!profile.onboarding_complete) {
-        if (profile.role === 'clinic_owner') router.push('/onboarding/clinic')
-        else router.push('/onboarding/client')
-      } else if (profile.role === 'client') {
-        await supabase.auth.signOut()
-        setError('Esta conta e de tutor. Use a tela "Sou tutor" para entrar.')
-        setLoading(false)
-        return
+      if (res.ok) {
+        // Store clinic data in localStorage for onboarding after verification
+        localStorage.setItem('clicapet_clinic_data', JSON.stringify({
+          clinic_name: clinicName,
+          clinic_phone: clinicPhone,
+          clinic_address: clinicAddress,
+        }))
+        router.push(`/verify-email?email=${encodeURIComponent(email)}`)
       } else {
+        const data = await res.json()
+        setError(data.error || 'Erro ao criar conta')
+        setLoading(false)
+      }
+    } else {
+      // Login flow
+      const result = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      })
+
+      if (result?.error) {
+        setError('Email ou senha invalidos')
+        setLoading(false)
+        return
+      }
+
+      // Fetch session to check role and onboarding status
+      try {
+        const sessionRes = await fetch('/api/auth/session')
+        const session = await sessionRes.json()
+
+        if (!session?.role) {
+          router.push('/onboarding/clinic')
+        } else if (!session.onboardingComplete) {
+          if (session.role === 'clinic_owner') router.push('/onboarding/clinic')
+          else router.push('/onboarding/client')
+        } else if (session.role === 'client') {
+          setError('Esta conta e de tutor. Use a tela "Sou tutor" para entrar.')
+          setLoading(false)
+          return
+        } else {
+          router.push('/dashboard')
+        }
+      } catch {
         router.push('/dashboard')
       }
       router.refresh()
     }
-  }
-
-  if (signingOut) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <p className="text-gray-500">Saindo da conta de tutor...</p>
-      </div>
-    )
-  }
-
-  if (emailSent) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-teal-50">
-        <div className="w-full max-w-sm p-8 bg-white rounded-2xl shadow-lg text-center">
-          <div className="w-16 h-16 bg-teal-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-teal-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" />
-            </svg>
-          </div>
-          <h1 className="text-2xl font-bold mb-2 text-gray-900">Confirme seu email</h1>
-          <p className="text-gray-500 mb-4">
-            Enviamos um link de confirmacao para <strong>{email}</strong>
-          </p>
-          <p className="text-sm text-gray-400">
-            Verifique sua caixa de entrada e clique no link para ativar sua conta.
-          </p>
-          <button
-            onClick={() => { setEmailSent(false); setIsSignUp(false) }}
-            className="mt-6 text-sm text-teal-600 hover:underline"
-          >
-            Voltar para login
-          </button>
-        </div>
-      </div>
-    )
   }
 
   return (
@@ -224,7 +129,7 @@ function LoginForm() {
               Gerencie sua clinica<br />de forma simples
             </h2>
             <p className="text-teal-100 text-lg leading-relaxed max-w-md">
-              Prontuarios, vacinas, agendamentos e financeiro — tudo em um unico lugar para voce focar no que importa: cuidar dos pets.
+              Prontuarios, vacinas, agendamentos e financeiro - tudo em um unico lugar para voce focar no que importa: cuidar dos pets.
             </p>
           </div>
           <div className="flex items-center gap-3 text-sm text-teal-200">

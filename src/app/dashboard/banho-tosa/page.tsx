@@ -1,6 +1,5 @@
 'use client'
 
-import { createClient } from '@/lib/supabase/client'
 import { useEffect, useState } from 'react'
 import { Header } from '@/components/header'
 
@@ -9,7 +8,6 @@ type GroomingService = {
   name: string
   price: number
   duration: number
-  active: boolean
 }
 
 function fmtMoney(v: number) {
@@ -20,52 +18,38 @@ export default function BanhoTosaPage() {
   const [services, setServices] = useState<GroomingService[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [clinicId, setClinicId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [formName, setFormName] = useState('')
   const [formPrice, setFormPrice] = useState('')
   const [formDuration, setFormDuration] = useState('30')
-  const supabase = createClient()
 
   useEffect(() => {
     loadServices()
   }, [])
 
   async function loadServices() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: clinic } = await supabase
-      .from('clinics')
-      .select('id')
-      .eq('user_id', user.id)
-      .single()
-
-    if (!clinic) return
-    setClinicId(clinic.id)
-
-    const { data } = await supabase
-      .from('grooming_services')
-      .select('*')
-      .eq('clinic_id', clinic.id)
-      .order('name')
-
-    setServices(data ?? [])
+    const res = await fetch('/api/grooming-services')
+    if (!res.ok) return
+    const data = await res.json()
+    setServices(data)
     setLoading(false)
   }
 
   async function handleAdd() {
-    if (!clinicId || !formName.trim() || !formPrice) return
+    if (!formName.trim() || !formPrice) return
     setSaving(true)
 
-    const { error } = await supabase.from('grooming_services').insert({
-      clinic_id: clinicId,
-      name: formName.trim(),
-      price: parseFloat(formPrice),
-      duration: parseInt(formDuration),
+    const res = await fetch('/api/grooming-services', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: formName.trim(),
+        price: parseFloat(formPrice),
+        duration: parseInt(formDuration),
+      }),
     })
 
-    if (!error) {
+    if (res.ok) {
       setShowForm(false)
       setFormName('')
       setFormPrice('')
@@ -75,13 +59,8 @@ export default function BanhoTosaPage() {
     setSaving(false)
   }
 
-  async function handleToggle(id: string, active: boolean) {
-    await supabase.from('grooming_services').update({ active: !active }).eq('id', id)
-    await loadServices()
-  }
-
   async function handleDelete(id: string) {
-    await supabase.from('grooming_services').delete().eq('id', id)
+    await fetch(`/api/grooming-services?id=${id}`, { method: 'DELETE' })
     await loadServices()
   }
 
@@ -177,23 +156,17 @@ export default function BanhoTosaPage() {
           {services.map((service) => (
             <div key={service.id} className="px-4 py-3 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className={`w-2 h-2 rounded-full ${service.active ? 'bg-teal-400' : 'bg-gray-300'}`} />
+                <div className="w-2 h-2 rounded-full bg-teal-400" />
                 <div>
                   <span className="text-sm font-medium text-gray-900">{service.name}</span>
                   <div className="text-xs text-gray-400 mt-0.5">
-                    <span className="font-medium text-teal-600">{fmtMoney(service.price)}</span>
+                    <span className="font-medium text-teal-600">{fmtMoney(Number(service.price))}</span>
                     <span className="mx-1">|</span>
                     <span>{service.duration} min</span>
                   </div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleToggle(service.id, service.active)}
-                  className={`text-xs px-2 py-1 rounded ${service.active ? 'bg-teal-50 text-teal-700' : 'bg-gray-100 text-gray-500'}`}
-                >
-                  {service.active ? 'Ativo' : 'Inativo'}
-                </button>
                 <button
                   onClick={() => handleDelete(service.id)}
                   className="text-xs text-red-500 hover:text-red-700 px-2 py-1"
