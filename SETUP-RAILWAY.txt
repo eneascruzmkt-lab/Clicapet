@@ -1,0 +1,124 @@
+========================================
+CLICAPET - GUIA DE SETUP NO RAILWAY
+========================================
+
+O QUE FOI FEITO:
+- Supabase foi 100% removido do projeto
+- Banco de dados agora usa PostgreSQL + Prisma ORM
+- Autenticacao agora usa NextAuth.js (email/senha + bcrypt)
+- Verificacao de email com codigo de 6 digitos (via Resend)
+- Upload de fotos de pets agora usa Cloudinary
+- Resend mantido para envio de emails
+- Build compila sem erros
+- Codigo commitado e pushado para GitHub
+
+========================================
+VARIAVEIS DE AMBIENTE NO RAILWAY
+========================================
+
+DATABASE_URL=postgresql://... (o Railway gera automaticamente quando voce cria o PostgreSQL)
+AUTH_SECRET=qualquer-texto-longo-aleatorio-aqui
+AUTH_TRUST_HOST=true
+NEXTAUTH_URL=https://SUA-URL.up.railway.app
+CLOUDINARY_CLOUD_NAME=seu_cloud_name
+CLOUDINARY_API_KEY=sua_api_key
+CLOUDINARY_API_SECRET=sua_api_secret
+RESEND_API_KEY=sua_resend_api_key
+CRON_SECRET=qualquer-texto-aleatorio
+
+========================================
+COMO CONFIGURAR NO RAILWAY
+========================================
+
+1. CRIAR PROJETO
+   - Acesse railway.app e faca login
+   - Clique em "New Project"
+   - Escolha "Deploy from GitHub Repo"
+   - Selecione o repositorio eneascruzmkt-lab/Clicapet
+
+2. ADICIONAR POSTGRESQL
+   - No projeto, clique em "+ New" > "Database" > "PostgreSQL"
+   - O Railway cria o banco e gera a DATABASE_URL automaticamente
+
+3. VINCULAR BANCO AO SERVICO
+   - Clique no servico Next.js
+   - Va em "Variables"
+   - Clique em "Add Reference Variable"
+   - Selecione DATABASE_URL do servico PostgreSQL
+   - Isso garante que a variavel e preenchida automaticamente
+
+4. ADICIONAR VARIAVEIS DE AMBIENTE
+   - No servico Next.js, va em "Variables"
+   - Adicione todas as variaveis listadas acima
+
+5. BUILD COMMAND
+   - Va em "Settings" do servico Next.js
+   - Em "Build Command" coloque:
+     npx prisma generate && npx prisma db push && npm run build
+   - Em "Start Command" coloque:
+     npm start
+
+6. REDEPLOY
+   - Apos configurar tudo, clique em "Redeploy"
+   - Verifique os logs para erros
+
+========================================
+CONTAS EXTERNAS NECESSARIAS
+========================================
+
+CLOUDINARY (gratis ate 25GB):
+   - Acesse cloudinary.com
+   - Crie uma conta
+   - No Dashboard, copie: Cloud Name, API Key, API Secret
+
+RESEND (gratis ate 100 emails/dia):
+   - Acesse resend.com
+   - Crie uma conta
+   - Em "API Keys", crie uma nova chave
+
+========================================
+SE DER INTERNAL SERVER ERROR
+========================================
+
+1. Verifique se AUTH_SECRET esta configurado (nao NEXTAUTH_SECRET)
+2. Verifique se AUTH_TRUST_HOST=true esta configurado
+3. Verifique se NEXTAUTH_URL tem https:// no inicio
+4. Verifique se DATABASE_URL esta conectando ao PostgreSQL do Railway
+5. Verifique nos logs do Railway se tem erro especifico
+6. Tente adicionar a variavel NODE_ENV=production
+7. Verifique se o Build Command esta correto:
+   npx prisma generate && npx prisma db push && npm run build
+
+========================================
+ESTRUTURA TECNICA
+========================================
+
+Autenticacao: NextAuth.js v5 (beta) com Credentials provider
+Banco: PostgreSQL via Prisma ORM (20 models)
+Upload de fotos: Cloudinary
+Emails: Resend
+Framework: Next.js 16 + TypeScript + Tailwind CSS
+
+Arquivos importantes:
+- prisma/schema.prisma        -> Schema do banco de dados
+- src/lib/auth.ts              -> Configuracao do NextAuth
+- src/lib/prisma.ts            -> Client do Prisma
+- src/lib/cloudinary.ts        -> Configuracao do Cloudinary
+- src/lib/auth-utils.ts        -> Helpers de autenticacao
+- src/middleware.ts             -> Protecao de rotas
+- .env.example                 -> Modelo das variaveis de ambiente
+
+Spec completa: docs/superpowers/specs/2026-04-25-reescrita-supabase-para-railway-design.md
+Plano de implementacao: docs/superpowers/plans/2026-04-25-reescrita-supabase-railway.md
+
+========================================
+PARA DEBUGAR NO OUTRO PC
+========================================
+
+1. Clone o repo: git clone https://github.com/eneascruzmkt-lab/Clicapet.git
+2. npm install
+3. Crie um .env.local com as variaveis acima
+4. npx prisma generate
+5. npx prisma db push (se tiver um banco local)
+6. npm run dev
+7. Acesse http://localhost:3000
